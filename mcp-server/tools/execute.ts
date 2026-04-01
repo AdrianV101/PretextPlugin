@@ -61,6 +61,7 @@ export type SegmentInfo = {
 export type MeasureOutput = {
   segments: SegmentInfo[]
   totalWidth: number
+  error?: string
 }
 
 export async function handleMeasure(input: MeasureInput): Promise<MeasureOutput> {
@@ -77,16 +78,22 @@ export async function handleMeasure(input: MeasureInput): Promise<MeasureOutput>
   const segments: SegmentInfo[] = []
   let totalWidth = 0
 
-  if (internal.segments && internal.widths && internal.kinds) {
-    for (let i = 0; i < internal.segments.length; i++) {
-      const width = internal.widths[i] ?? 0
-      segments.push({
-        text: internal.segments[i] ?? '',
-        width,
-        kind: internal.kinds[i] ?? 'text',
-      })
-      totalWidth += width
+  if (!internal.segments || !internal.widths || !internal.kinds) {
+    return {
+      segments: [],
+      totalWidth: 0,
+      error: 'PreparedTextWithSegments internals not accessible — pretext version may be incompatible',
     }
+  }
+
+  for (let i = 0; i < internal.segments.length; i++) {
+    const width = internal.widths[i] ?? 0
+    segments.push({
+      text: internal.segments[i] ?? '',
+      width,
+      kind: internal.kinds[i] ?? 'text',
+    })
+    totalWidth += width
   }
 
   return { segments, totalWidth }
