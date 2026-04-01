@@ -6,7 +6,7 @@ Public API surface and orchestration layer. Coordinates analysis, measurement, a
 
 ### prepare(text, font, options?)
 
-1. `analyzeText(text, whiteSpace)` → `TextAnalysis` with normalized text, segments, break kinds
+1. `analyzeText(text, profile, whiteSpace?)` → `TextAnalysis` with normalized text, segments, break kinds
 2. `measureAnalysis(analysis, font, includeSegments)`:
    a. `getEngineProfile()` — browser classification (cached)
    b. `getFontMeasurementState(font, mayHaveEmoji)` — font cache + emoji correction

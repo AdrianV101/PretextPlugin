@@ -41,4 +41,32 @@ describe('pretext_source', () => {
     const result = await handleSource({ module: 'nonexistent' })
     expect(result.error).toBeDefined()
   })
+
+  test('returns error for non-existent function name', async () => {
+    const result = await handleSource({ module: 'layout', functionName: 'nonExistentFunction' })
+    expect(result.error).toBeDefined()
+    expect(result.error).toContain('not found')
+    expect(result.source).toBe('')
+  })
+
+  test('returns source for all five modules', async () => {
+    for (const mod of ['layout', 'analysis', 'measurement', 'line-break', 'bidi']) {
+      const result = await handleSource({ module: mod })
+      expect(result.source.length).toBeGreaterThan(0)
+      expect(result.error).toBeUndefined()
+    }
+  })
+})
+
+describe('pretext_explain edge cases', () => {
+  test('sources field is populated for matching queries', async () => {
+    const result = await handleExplain({ query: 'prepare function' })
+    expect(result.sources.length).toBeGreaterThan(0)
+    expect(typeof result.sources[0]).toBe('string')
+  })
+
+  test('single-character query terms are filtered out', async () => {
+    const result = await handleExplain({ query: 'a' })
+    expect(result.content).toContain('No specific sections found')
+  })
 })

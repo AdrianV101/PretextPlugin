@@ -150,4 +150,9 @@ server.registerTool(
 // --- Start server ---
 
 const transport = new StdioServerTransport()
-await server.connect(transport)
+try {
+  await server.connect(transport)
+} catch (error) {
+  process.stderr.write(`pretext MCP server failed to start: ${error}\n`)
+  process.exit(1)
+}

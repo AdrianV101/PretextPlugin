@@ -2,3 +2,28 @@ CLAUDE.md
 /pretext/
 node_modules/
 plans/
+
+# Claude Code local state
+.claude/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Environment
+.env
+.env.*
+
+# Build output
+dist/
+
+# Logs
+*.log
+
+# Editor configs
+.vscode/
+.idea/
+
+# Package artifacts
+*.tgz
+*.tar.gz

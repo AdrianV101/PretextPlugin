@@ -49,8 +49,8 @@ Two-level implementation:
 
 ## Key Functions
 
-- `analyzeText(text, whiteSpace)` → `TextAnalysis` — main entry point
-- `isCJK(char)` → boolean — covers BMP + Extensions A-G via `codePointAt()`
+- `analyzeText(text, profile, whiteSpace?)` → `TextAnalysis` — main entry point (profile: `AnalysisProfile` from engine detection)
+- `isCJK(s)` → boolean — covers BMP + Extensions A-G via `codePointAt()`
 - `kinsokuEnd` / `kinsokuStart` — `Set<string>` of prohibited line-end/start chars
 - `leftStickyPunctuation` — punctuation that attaches to following text
 - `clearAnalysisCaches()` — reset word segmenter

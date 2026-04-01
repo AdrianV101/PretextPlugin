@@ -33,4 +33,18 @@ describe('version detection', () => {
     expect(result.lineCount).toBe(1)
     expect(result.height).toBe(20)
   })
+
+  test('loadPretext exposes setLocale and walkLineRanges', async () => {
+    const { loadPretext } = await import('./version.js')
+    const mod = await loadPretext('/nonexistent/project')
+    expect(typeof mod.setLocale).toBe('function')
+    expect(typeof mod.walkLineRanges).toBe('function')
+  })
+
+  test('loadPretext returns cached module for same projectDir', async () => {
+    const { loadPretext } = await import('./version.js')
+    const mod1 = await loadPretext('/nonexistent/project')
+    const mod2 = await loadPretext('/nonexistent/project')
+    expect(mod1).toBe(mod2)
+  })
 })

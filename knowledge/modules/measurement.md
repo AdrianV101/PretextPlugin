@@ -30,8 +30,8 @@ Detection: `textMayContainEmoji()` scans for emoji-range codepoints to skip DOM 
 |---|---|---|---|
 | `lineFitEpsilon` | 1/64 (0.015625) | 0.005 | 0.005 |
 | `carryCJKAfterClosingQuote` | false | true | false |
-| `safariSoftHyphenBreak` | true | false | false |
-| `useGraphemePrefixWidths` | true | false | false |
+| `preferEarlySoftHyphenBreak` | true | false | false |
+| `preferPrefixWidthsForBreakableRuns` | true | false | false |
 
 Computed once from `navigator.userAgent`, never invalidated. `lineFitEpsilon` is the tolerance for deciding whether a segment fits on the current line.
 
@@ -43,7 +43,7 @@ Two strategies for computing per-grapheme widths (used in overflow-wrap):
 
 2. **Prefix widths** (Safari): Measure "a", "ab", "abc"... and difference adjacent values. Captures kerning effects. More expensive but more accurate.
 
-Selected by `useGraphemePrefixWidths` in engine profile.
+Selected by `preferPrefixWidthsForBreakableRuns` in engine profile.
 
 ## Canvas Context Management
 
@@ -55,7 +55,7 @@ Selected by `useGraphemePrefixWidths` in engine profile.
 ## Key Functions
 
 - `getEngineProfile()` → engine profile with 4 parameters
-- `getFontMeasurementState(font, mayHaveEmoji)` → `{ cache, emojiCorrection }`
+- `getFontMeasurementState(font, needsEmojiCorrection)` → `{ cache, fontSize, emojiCorrection }`
 - `getSegmentMetrics(text, cache)` → `SegmentMetrics` with width
 - `getCorrectedSegmentWidth(text, metrics, correction)` → corrected width
 - `getSegmentGraphemeWidths(text, metrics, cache, correction)` → `number[]`
