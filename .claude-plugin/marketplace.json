@@ -1,0 +1,16 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "pretext-marketplace",
+  "description": "PretextPlugin - Deep pretext library knowledge for Claude Code",
+  "owner": {
+    "name": "Adrian Verhoosel"
+  },
+  "plugins": [
+    {
+      "name": "pretext",
+      "description": "Deep pretext library knowledge for Claude — skills, MCP tools, and reference docs for DOM-free text measurement and layout",
+      "category": "development",
+      "source": "./"
+    }
+  ]
+}
