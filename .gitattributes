@@ -1,0 +1,5 @@
+# Mark vendored pretext dist as third-party (excluded from GitHub language stats)
+pretext-bundled/** linguist-vendored
+
+# Mark knowledge base as documentation
+knowledge/** linguist-documentation

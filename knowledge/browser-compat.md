@@ -73,9 +73,9 @@ Pretext detects the browser engine and applies per-engine tuning parameters.
 
 Canvas resolves `system-ui` to different optical variants than the DOM layout engine on macOS. This causes systematic measurement mismatches that pretext cannot correct. Always use named fonts.
 
-## OffscreenCanvas Requirement
+## Canvas Requirement
 
-Pretext requires `OffscreenCanvas` with a `'2d'` context. Supported in all modern browsers. The minimum API surface used:
+Pretext prefers `OffscreenCanvas` but falls back to `document.createElement('canvas')` when unavailable. The minimum API surface used:
 - `new OffscreenCanvas(width, height)`
 - `.getContext('2d')` returning `{ font: string, measureText(text): { width: number } }`
 - No other Canvas/DOM APIs required

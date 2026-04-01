@@ -121,7 +121,7 @@ class FakeOffscreenCanvas {
 
 export function installCanvasShim(): void {
   if (typeof globalThis.OffscreenCanvas === 'undefined') {
-    ;(globalThis as any).OffscreenCanvas = FakeOffscreenCanvas
+    ;(globalThis as { OffscreenCanvas?: unknown }).OffscreenCanvas = FakeOffscreenCanvas
   }
 }
 

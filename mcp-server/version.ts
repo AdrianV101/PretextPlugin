@@ -6,8 +6,30 @@ import { resolve, join } from 'path'
 import { existsSync, readFileSync } from 'fs'
 
 const BUNDLED_VERSION = '0.0.3'
-const PLUGIN_ROOT = import.meta.dir.replace(/\/mcp-server$/, '')
+const PLUGIN_ROOT = resolve(import.meta.dir, '..')
 const BUNDLED_PATH = join(PLUGIN_ROOT, 'pretext-bundled', 'layout.js')
+
+// Types mirroring pretext's public API surface (layout.d.ts).
+// Defined locally because pretext is loaded dynamically at runtime.
+
+declare const preparedBrand: unique symbol
+
+/** Opaque prepared text — treat as black-box input to layout functions. */
+export type PreparedText = { readonly [preparedBrand]: true }
+
+/** Prepared text with exposed segment data for measurement analysis. */
+export type PreparedTextWithSegments = PreparedText & {
+  segments: string[]
+  widths: number[]
+  kinds: string[]
+}
+
+export type PrepareOptions = { whiteSpace?: 'normal' | 'pre-wrap' }
+export type LayoutCursor = { segmentIndex: number; graphemeIndex: number }
+export type LayoutResult = { lineCount: number; height: number }
+export type LayoutLine = { text: string; width: number; start: LayoutCursor; end: LayoutCursor }
+export type LayoutLineRange = { width: number; start: LayoutCursor; end: LayoutCursor }
+export type LayoutLinesResult = LayoutResult & { lines: LayoutLine[] }
 
 export type PretextLocation = {
   path: string
@@ -17,12 +39,12 @@ export type PretextLocation = {
 }
 
 export type PretextModule = {
-  prepare: (text: string, font: string, options?: { whiteSpace?: 'normal' | 'pre-wrap' }) => any
-  prepareWithSegments: (text: string, font: string, options?: { whiteSpace?: 'normal' | 'pre-wrap' }) => any
-  layout: (prepared: any, maxWidth: number, lineHeight: number) => { lineCount: number; height: number }
-  layoutWithLines: (prepared: any, maxWidth: number, lineHeight: number) => { lineCount: number; height: number; lines: any[] }
-  walkLineRanges: (prepared: any, maxWidth: number, onLine: (line: any) => void) => number
-  layoutNextLine: (prepared: any, start: any, maxWidth: number) => any | null
+  prepare: (text: string, font: string, options?: PrepareOptions) => PreparedText
+  prepareWithSegments: (text: string, font: string, options?: PrepareOptions) => PreparedTextWithSegments
+  layout: (prepared: PreparedText, maxWidth: number, lineHeight: number) => LayoutResult
+  layoutWithLines: (prepared: PreparedTextWithSegments, maxWidth: number, lineHeight: number) => LayoutLinesResult
+  walkLineRanges: (prepared: PreparedTextWithSegments, maxWidth: number, onLine: (line: LayoutLineRange) => void) => number
+  layoutNextLine: (prepared: PreparedTextWithSegments, start: LayoutCursor, maxWidth: number) => LayoutLine | null
   clearCache: () => void
   setLocale: (locale?: string) => void
 }

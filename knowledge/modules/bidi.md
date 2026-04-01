@@ -8,13 +8,12 @@ Computes per-segment embedding levels for mixed LTR/RTL text. Used for custom re
 
 ## Implementation
 
-`computeSegmentLevels(segments, kinds)` → `Int8Array | null`
+`computeSegmentLevels(normalized: string, segStarts: number[])` → `Int8Array | null`
 
-1. Scan segments for RTL characters (Arabic, Hebrew ranges via `charCodeAt()`)
+1. `computeBidiLevels(normalized)` scans the full text for RTL characters (Arabic, Hebrew ranges via `charCodeAt()`)
 2. If no RTL characters found: return `null` (pure LTR text)
-3. Otherwise: assign levels based on character directionality
-   - RTL characters: odd level (1)
-   - LTR characters: even level (0)
+3. Otherwise: runs a subset of UAX #9 — character type classification (L, R, AL, AN, EN, ON, WS, etc.), weak type resolution (rules W1–W7), neutral type resolution (N1–N2), and implicit level assignment (I1–I2)
+4. `computeSegmentLevels` then samples the per-character levels at each segment start offset to produce per-segment levels
 
 ## Known Limitations
 

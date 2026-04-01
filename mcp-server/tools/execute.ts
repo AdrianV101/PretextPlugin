@@ -23,7 +23,8 @@ export type RunOutput = {
 export async function handleRun(input: RunInput): Promise<RunOutput> {
   const pretext = await loadPretext(PROJECT_DIR)
 
-  if (input.locale) pretext.setLocale(input.locale)
+  // Always set locale to prevent leaking state between invocations
+  pretext.setLocale(input.locale)
 
   const options = input.whiteSpace ? { whiteSpace: input.whiteSpace } : undefined
 
@@ -33,7 +34,7 @@ export async function handleRun(input: RunInput): Promise<RunOutput> {
     return {
       lineCount: result.lineCount,
       height: result.height,
-      lines: result.lines.map((line: any) => ({
+      lines: result.lines.map((line) => ({
         text: line.text,
         width: line.width,
       })),
@@ -67,18 +68,16 @@ export type MeasureOutput = {
 export async function handleMeasure(input: MeasureInput): Promise<MeasureOutput> {
   const pretext = await loadPretext(PROJECT_DIR)
 
-  if (input.locale) pretext.setLocale(input.locale)
+  // Always set locale to prevent leaking state between invocations
+  pretext.setLocale(input.locale)
 
   const options = input.whiteSpace ? { whiteSpace: input.whiteSpace } : undefined
   const prepared = pretext.prepareWithSegments(input.text, input.font, options)
 
-  // Access internal parallel arrays to extract segment info
-  // PreparedTextWithSegments exposes segments: string[]
-  const internal = prepared as any
   const segments: SegmentInfo[] = []
   let totalWidth = 0
 
-  if (!internal.segments || !internal.widths || !internal.kinds) {
+  if (!prepared.segments || !prepared.widths || !prepared.kinds) {
     return {
       segments: [],
       totalWidth: 0,
@@ -86,12 +85,12 @@ export async function handleMeasure(input: MeasureInput): Promise<MeasureOutput>
     }
   }
 
-  for (let i = 0; i < internal.segments.length; i++) {
-    const width = internal.widths[i] ?? 0
+  for (let i = 0; i < prepared.segments.length; i++) {
+    const width = prepared.widths[i] ?? 0
     segments.push({
-      text: internal.segments[i] ?? '',
+      text: prepared.segments[i] ?? '',
       width,
-      kind: internal.kinds[i] ?? 'text',
+      kind: prepared.kinds[i] ?? 'text',
     })
     totalWidth += width
   }

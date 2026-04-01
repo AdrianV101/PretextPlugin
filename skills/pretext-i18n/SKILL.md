@@ -2,8 +2,9 @@
 name: pretext-i18n
 description: >-
   Use when working with pretext and non-Latin scripts — CJK (Chinese, Japanese, Korean),
-  Arabic, Hebrew, Thai, Hindi, Myanmar, Khmer, Urdu, emoji, or mixed-script/bidirectional
-  text. Provides per-script guidance, accuracy expectations, and known limitations.
+  Arabic, Hebrew, Thai, Hindi, Myanmar, Khmer, Urdu, emoji, RTL (right-to-left), or
+  mixed-script/bidirectional text. Provides per-script guidance, accuracy expectations,
+  and known limitations.
 ---
 
 # Pretext Internationalization Guide
@@ -21,9 +22,9 @@ preprocessing rules, and known limitations.
 | Hindi | Perfect | Production-ready |
 | Khmer | Perfect | Production-ready |
 | Arabic | ~98.8% | Production-ready (minor edge-fit mismatches) |
-| Thai | ~98% | Production-ready (segmenter-dependent) |
+| Thai | ~97-98% | Production-ready (segmenter-dependent) |
 | Japanese | ~90-92% | Usable (font-sensitive kana) |
-| Myanmar | ~93% | Usable (frontier, medial glue) |
+| Myanmar | ~92-93% | Usable (frontier, medial glue) |
 | Chinese | 69-89% | Caution (highly font-dependent) |
 | Urdu | ~51% | Limited (Nastaliq ligature wall) |
 | Emoji | Corrected | Production-ready after auto-correction |

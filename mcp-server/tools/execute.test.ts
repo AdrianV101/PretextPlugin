@@ -71,4 +71,51 @@ describe('pretext_measure', () => {
     expect(typeof result.segments[0]!.width).toBe('number')
     expect(typeof result.segments[0]!.kind).toBe('string')
   })
+
+  test('totalWidth equals sum of segment widths', async () => {
+    const { handleMeasure } = await import('./execute.js')
+    const result = await handleMeasure({
+      text: 'hello world',
+      font: '16px sans-serif',
+    })
+    const sum = result.segments.reduce((acc, seg) => acc + seg.width, 0)
+    expect(result.totalWidth).toBeCloseTo(sum, 5)
+  })
+
+  test('handles locale parameter without error', async () => {
+    const { handleMeasure } = await import('./execute.js')
+    const result = await handleMeasure({
+      text: 'some text',
+      font: '16px sans-serif',
+      locale: 'th',
+    })
+    expect(result.segments.length).toBeGreaterThan(0)
+    expect(result.error).toBeUndefined()
+  })
+})
+
+describe('pretext_run edge cases', () => {
+  test('handles empty string', async () => {
+    const { handleRun } = await import('./execute.js')
+    const result = await handleRun({
+      text: '',
+      font: '16px sans-serif',
+      width: 200,
+      lineHeight: 20,
+    })
+    expect(typeof result.lineCount).toBe('number')
+    expect(result.height).toBe(result.lineCount * 20)
+  })
+
+  test('handles locale parameter without error', async () => {
+    const { handleRun } = await import('./execute.js')
+    const result = await handleRun({
+      text: 'some text',
+      font: '16px sans-serif',
+      width: 200,
+      lineHeight: 20,
+      locale: 'ja',
+    })
+    expect(result.lineCount).toBeGreaterThanOrEqual(1)
+  })
 })

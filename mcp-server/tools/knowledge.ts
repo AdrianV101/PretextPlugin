@@ -2,9 +2,9 @@
 // Serves knowledge base sections and pretext source code.
 
 import { readFileSync, existsSync, readdirSync } from 'fs'
-import { join } from 'path'
+import { join, resolve } from 'path'
 
-const PLUGIN_ROOT = import.meta.dir.replace(/\/mcp-server\/tools$/, '')
+const PLUGIN_ROOT = resolve(import.meta.dir, '..', '..')
 const KNOWLEDGE_DIR = join(PLUGIN_ROOT, 'knowledge')
 const BUNDLED_SRC_DIR = join(PLUGIN_ROOT, 'pretext-bundled')
 const LOCAL_SRC_DIR = join(PLUGIN_ROOT, 'pretext', 'src')
@@ -177,9 +177,10 @@ export async function handleSource(input: SourceInput): Promise<SourceOutput> {
     return { source: fullSource, path: filePath }
   }
 
-  // Extract specific function
+  // Extract specific function: match from declaration to next top-level declaration or EOF
+  const escapedName = input.functionName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
   const funcPattern = new RegExp(
-    `(?:export\\s+)?function\\s+${input.functionName}\\b[^]*?(?=\\n(?:export\\s+)?(?:function|class|const|let|type|interface)\\b|\\n\\/\\/\\s*---|\$)`,
+    `(?:export\\s+)?function\\s+${escapedName}\\b[^]*?(?=\\n(?:export\\s+)?(?:function|class|const|let|type|interface)\\b|\\n\\/\\/\\s*---|\$)`,
     's'
   )
   const match = fullSource.match(funcPattern)
