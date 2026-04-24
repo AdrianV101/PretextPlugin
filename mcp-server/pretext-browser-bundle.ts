@@ -35,7 +35,10 @@ async function getModuleSource(filename: string): Promise<string | null> {
     const body = await readFile(resolve(BUNDLED_DIR, filename), 'utf-8')
     fileCache.set(filename, body)
     return body
-  } catch {
+  } catch (err) {
+    process.stderr.write(
+      `pretext bundle: failed to read ${filename} from ${BUNDLED_DIR}: ${(err as Error).message}\n`
+    )
     return null
   }
 }

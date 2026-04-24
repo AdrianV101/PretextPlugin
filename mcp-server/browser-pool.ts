@@ -60,9 +60,11 @@ export class BrowserPool {
     this.pagePromises.set(type, promise)
     try {
       return await promise
-    } catch (err) {
+    } finally {
+      // Clean up on both success and failure once the promise settles.
+      // Subsequent callers hit the this.pages cache first (success case)
+      // or start fresh (failure case) — leaving the entry would leak either way.
       this.pagePromises.delete(type)
-      throw err
     }
   }
 
@@ -94,7 +96,9 @@ export class BrowserPool {
 
     // If the pool was closed while we were launching, don't leak the browser.
     if (this.closed) {
-      await browser.close().catch(() => {})
+      await browser.close().catch((err) => {
+        process.stderr.write(`BrowserPool: failed to close browser during cleanup: ${(err as Error).message}\n`)
+      })
       throw new Error('BrowserPool is closed')
     }
 
@@ -103,14 +107,26 @@ export class BrowserPool {
       page = await browser.newPage()
       await registerPretextRoute(page)
       await page.setContent(PAGE_HTML)
-      await page.waitForFunction(() => (globalThis as any).__pretext !== undefined, null, { timeout: 5000 })
+      try {
+        await page.waitForFunction(() => (globalThis as any).__pretext !== undefined, null, { timeout: 5000 })
+      } catch (err) {
+        throw new Error(
+          `pretext bundle failed to load in page within 5s. ` +
+          `Check that pretext-bundled/ exists and is readable. ` +
+          `Underlying: ${err instanceof Error ? err.message : String(err)}`
+        )
+      }
     } catch (err) {
-      await browser.close().catch(() => {})
+      await browser.close().catch((err) => {
+        process.stderr.write(`BrowserPool: failed to close browser during cleanup: ${(err as Error).message}\n`)
+      })
       throw err
     }
 
     if (this.closed) {
-      await browser.close().catch(() => {})
+      await browser.close().catch((err) => {
+        process.stderr.write(`BrowserPool: failed to close browser during cleanup: ${(err as Error).message}\n`)
+      })
       throw new Error('BrowserPool is closed')
     }
 
@@ -127,7 +143,9 @@ export class BrowserPool {
     this.pages.clear()
     this.pagePromises.clear()
     await Promise.all(all.map(async (b) => {
-      try { await b.close() } catch { /* best effort */ }
+      try { await b.close() } catch (err) {
+        process.stderr.write(`BrowserPool: failed to close browser: ${(err as Error).message}\n`)
+      }
     }))
   }
 }

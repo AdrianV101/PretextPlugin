@@ -11,17 +11,26 @@ import { BrowserPool, type BrowserType } from './browser-pool.js'
 import type { RunInput, RunOutput, MeasureInput, MeasureOutput } from './tools/execute.js'
 
 let pool: BrowserPool | null = null
+let signalsWired = false
 
 function getPool(): BrowserPool {
   if (pool) return pool
   pool = new BrowserPool()
-  // Signal handlers registered once, on first use of the pool.
-  const cleanupAndExit = async () => {
-    try { await pool?.close() } catch { /* best effort */ }
-    process.exit(0)
+  if (!signalsWired) {
+    signalsWired = true
+    const cleanupAndExit = async () => {
+      let exitCode = 0
+      try {
+        await pool?.close()
+      } catch (err) {
+        process.stderr.write(`pretext MCP: cleanup on shutdown failed: ${(err as Error).message}\n`)
+        exitCode = 1
+      }
+      process.exit(exitCode)
+    }
+    process.on('SIGINT', cleanupAndExit)
+    process.on('SIGTERM', cleanupAndExit)
   }
-  process.on('SIGINT', cleanupAndExit)
-  process.on('SIGTERM', cleanupAndExit)
   return pool
 }
 
