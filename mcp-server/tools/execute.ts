@@ -12,6 +12,8 @@ export type RunInput = {
   whiteSpace?: 'normal' | 'pre-wrap'
   locale?: string
   rich?: boolean
+  mode?: 'structural' | 'accurate'
+  browser?: 'chromium' | 'firefox' | 'webkit'
 }
 
 export type RunOutput = {
@@ -51,6 +53,8 @@ export type MeasureInput = {
   font: string
   whiteSpace?: 'normal' | 'pre-wrap'
   locale?: string
+  mode?: 'structural' | 'accurate'
+  browser?: 'chromium' | 'firefox' | 'webkit'
 }
 
 export type SegmentInfo = {
