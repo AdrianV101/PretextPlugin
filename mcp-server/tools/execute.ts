@@ -1,6 +1,7 @@
 // pretext_run and pretext_measure tool implementations.
 
 import { loadPretext } from '../version.js'
+import { browserRun, browserMeasure } from '../browser.js'
 
 const PROJECT_DIR = process.cwd()
 
@@ -23,6 +24,9 @@ export type RunOutput = {
 }
 
 export async function handleRun(input: RunInput): Promise<RunOutput> {
+  if (input.mode === 'accurate') {
+    return browserRun(input)
+  }
   const pretext = await loadPretext(PROJECT_DIR)
 
   // Always set locale to prevent leaking state between invocations
@@ -70,6 +74,9 @@ export type MeasureOutput = {
 }
 
 export async function handleMeasure(input: MeasureInput): Promise<MeasureOutput> {
+  if (input.mode === 'accurate') {
+    return browserMeasure(input)
+  }
   const pretext = await loadPretext(PROJECT_DIR)
 
   // Always set locale to prevent leaking state between invocations
