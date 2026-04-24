@@ -1,7 +1,7 @@
 [![MIT License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.x-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 [![Bun](https://img.shields.io/badge/Bun-1.x-f9f1e1?logo=bun&logoColor=black)](https://bun.sh)
-[![Tests](https://img.shields.io/badge/Tests-56%20passing-brightgreen)]()
+[![Tests](https://img.shields.io/badge/Tests-82%20passing-brightgreen)]()
 [![pretext](https://img.shields.io/badge/pretext-v0.0.3-orange)](https://github.com/chenglou/pretext)
 
 # PretextPlugin
@@ -119,7 +119,7 @@ Select the engine with `browser: 'chromium' | 'firefox' | 'webkit'` (default: ch
 
 ```bash
 cd mcp-server && bun install        # Install dependencies
-cd mcp-server && bun test           # Run 56 tests
+cd mcp-server && bun test           # Run 82 tests
 cd mcp-server && bun run index.ts   # Start MCP server (stdio)
 ```
 
@@ -141,7 +141,7 @@ PretextPlugin was built through a four-phase process:
 1. **Structured Reading** — 8 research notes analyzing pretext's source code, architecture, and API surface
 2. **Empirical Validation** — 23,040 browser tests across Chrome, Safari, and Firefox confirming accuracy for 12 scripts. ~92% of Phase 1 findings confirmed; the rest corrected
 3. **Knowledge Architecture** — Plugin design spec with 6 architectural decisions (structural vs. accurate mode, knowledge granularity, tool boundaries)
-4. **Implementation** — 3 skills, 1 agent, MCP server with 5 tools, 12-file knowledge base, 56 tests
+4. **Implementation** — 3 skills, 1 agent, MCP server with 5 tools, 12-file knowledge base, 82 tests
 
 ## Contributing
 
