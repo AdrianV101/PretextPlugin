@@ -127,6 +127,8 @@ describe('handleRun mode dispatch', () => {
   afterEach(() => __resetPoolForTesting())
 
   test("mode='structural' runs through loadPretext (unchanged path)", async () => {
+    const getPage = mock(async () => { throw new Error('pool should not be touched') })
+    __setPoolForTesting({ getPage, close: async () => {} } as any)
     const out = await handleRun({
       text: 'hello',
       font: '16px sans-serif',
@@ -136,9 +138,12 @@ describe('handleRun mode dispatch', () => {
     })
     expect(out.lineCount).toBeGreaterThanOrEqual(1)
     expect(out.height).toBeGreaterThan(0)
+    expect(getPage).not.toHaveBeenCalled()
   })
 
   test("mode omitted defaults to structural", async () => {
+    const getPage = mock(async () => { throw new Error('pool should not be touched') })
+    __setPoolForTesting({ getPage, close: async () => {} } as any)
     const out = await handleRun({
       text: 'hello',
       font: '16px sans-serif',
@@ -146,6 +151,7 @@ describe('handleRun mode dispatch', () => {
       lineHeight: 20,
     })
     expect(out.lineCount).toBeGreaterThanOrEqual(1)
+    expect(getPage).not.toHaveBeenCalled()
   })
 
   test("mode='accurate' delegates to browserRun via the pool", async () => {

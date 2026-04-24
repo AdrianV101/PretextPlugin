@@ -65,7 +65,9 @@ type InPageMeasureArgs = {
   locale?: string
 }
 
-function inPageFn(args: InPageRunArgs | InPageMeasureArgs): unknown {
+function inPageFn(args: InPageRunArgs): RunOutput
+function inPageFn(args: InPageMeasureArgs): MeasureOutput
+function inPageFn(args: InPageRunArgs | InPageMeasureArgs): RunOutput | MeasureOutput {
   const p = (globalThis as any).__pretext
   p.setLocale(args.locale)
   const opts = args.whiteSpace ? { whiteSpace: args.whiteSpace } : undefined
@@ -113,7 +115,7 @@ export async function browserRun(input: RunInput): Promise<RunOutput> {
     locale: input.locale,
     rich: input.rich,
   }
-  return (await page.evaluate(inPageFn as any, args)) as RunOutput
+  return await page.evaluate<RunOutput, InPageRunArgs>(inPageFn as (args: InPageRunArgs) => RunOutput, args)
 }
 
 export async function browserMeasure(input: MeasureInput): Promise<MeasureOutput> {
@@ -126,5 +128,5 @@ export async function browserMeasure(input: MeasureInput): Promise<MeasureOutput
     whiteSpace: input.whiteSpace,
     locale: input.locale,
   }
-  return (await page.evaluate(inPageFn as any, args)) as MeasureOutput
+  return await page.evaluate<MeasureOutput, InPageMeasureArgs>(inPageFn as (args: InPageMeasureArgs) => MeasureOutput, args)
 }

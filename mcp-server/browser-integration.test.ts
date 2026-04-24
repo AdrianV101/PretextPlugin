@@ -10,7 +10,7 @@
 //   bunx playwright install chromium
 //   PRETEXT_ACCURATE_TESTS=1 bun test browser-integration.test.ts
 
-import { describe, test, expect, afterAll } from 'bun:test'
+import { describe, test, expect, beforeAll, afterAll } from 'bun:test'
 import { browserRun, browserMeasure, __setPoolForTesting, __resetPoolForTesting } from './browser.js'
 import { BrowserPool } from './browser-pool.js'
 
@@ -22,14 +22,16 @@ const d = ENABLED ? describe : describe.skip
 let sharedPool: BrowserPool | null = null
 
 d('accurate mode — real chromium', () => {
+  beforeAll(() => {
+    sharedPool = new BrowserPool()
+    __setPoolForTesting(sharedPool)
+  })
   afterAll(async () => {
     if (sharedPool) await sharedPool.close()
     __resetPoolForTesting()
   })
 
   test('layout short ASCII returns sensible line count and height', async () => {
-    sharedPool = new BrowserPool()
-    __setPoolForTesting(sharedPool)
     const out = await browserRun({
       text: 'The quick brown fox jumps over the lazy dog',
       font: '16px sans-serif',

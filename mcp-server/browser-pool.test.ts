@@ -154,4 +154,58 @@ describe('BrowserPool', () => {
     await expect(p.getPage('chromium')).rejects.toThrow(/boom/)
     expect(brokenBrowser.close).toHaveBeenCalledTimes(1)
   })
+
+  test('close() during in-flight launch closes the just-launched browser and rejects the caller', async () => {
+    let launchResolve: (() => void) | null = null
+    const launchGate = new Promise<void>((resolve) => { launchResolve = resolve })
+    const mockPage = makePage()
+    const mockBrowser = makeBrowser(mockPage)
+    const slowLaunch = mock(async () => {
+      await launchGate
+      return mockBrowser as any
+    })
+    const p = new BrowserPool({
+      loadPlaywright: async () => ({
+        chromium: { launch: slowLaunch },
+        firefox: { launch: async () => ({}) as any },
+        webkit: { launch: async () => ({}) as any },
+      }) as any,
+    })
+    const inFlight = p.getPage('chromium')
+    // Immediately close while launch is pending.
+    const closed = p.close()
+    // Allow the launch to resolve now.
+    launchResolve!()
+    await closed
+    await expect(inFlight).rejects.toThrow(/closed/)
+    // The browser returned by the pending launch must have been closed.
+    expect(mockBrowser.close).toHaveBeenCalledTimes(1)
+    expect((p as any).browsers.size).toBe(0)
+  })
+
+  test('close() during page setup closes the browser and rejects the caller', async () => {
+    let waitResolve: (() => void) | null = null
+    const waitGate = new Promise<void>((resolve) => { waitResolve = resolve })
+    const mockPage = makePage()
+    // Make waitForFunction hang until we let it go.
+    mockPage.waitForFunction = mock(async () => { await waitGate })
+    const mockBrowser = makeBrowser(mockPage)
+    const launchMock = mock(async () => mockBrowser as any)
+    const p = new BrowserPool({
+      loadPlaywright: async () => ({
+        chromium: { launch: launchMock },
+        firefox: { launch: async () => ({}) as any },
+        webkit: { launch: async () => ({}) as any },
+      }) as any,
+    })
+    const inFlight = p.getPage('chromium')
+    // Yield so _launchPage has awaited launch() and is now awaiting waitForFunction.
+    await new Promise((resolve) => setTimeout(resolve, 10))
+    const closed = p.close()
+    waitResolve!()
+    await closed
+    await expect(inFlight).rejects.toThrow(/closed/)
+    expect(mockBrowser.close).toHaveBeenCalledTimes(1)
+    expect((p as any).browsers.size).toBe(0)
+  })
 })
