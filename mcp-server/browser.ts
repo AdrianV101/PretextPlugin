@@ -92,7 +92,7 @@ function inPageFn(args: InPageRunArgs | InPageMeasureArgs): unknown {
 }
 
 export async function browserRun(input: RunInput): Promise<RunOutput> {
-  const type: BrowserType = (input.browser ?? 'chromium') as BrowserType
+  const type: BrowserType = input.browser ?? 'chromium'
   const page = await getPool().getPage(type)
   const args: InPageRunArgs = {
     kind: 'run',
@@ -108,7 +108,7 @@ export async function browserRun(input: RunInput): Promise<RunOutput> {
 }
 
 export async function browserMeasure(input: MeasureInput): Promise<MeasureOutput> {
-  const type: BrowserType = (input.browser ?? 'chromium') as BrowserType
+  const type: BrowserType = input.browser ?? 'chromium'
   const page = await getPool().getPage(type)
   const args: InPageMeasureArgs = {
     kind: 'measure',
@@ -119,10 +119,3 @@ export async function browserMeasure(input: MeasureInput): Promise<MeasureOutput
   }
   return (await page.evaluate(inPageFn as any, args)) as MeasureOutput
 }
-
-// --- legacy export kept for back-compat with any existing imports ---
-export async function isPlaywrightAvailable(): Promise<boolean> {
-  try { await import('playwright'); return true } catch { return false }
-}
-
-export type BrowserOptions = { browser?: BrowserType }
