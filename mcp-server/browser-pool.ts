@@ -4,7 +4,8 @@
 //
 // Lifecycle:
 //   - getPage(type) launches on first call for that type; returns cache thereafter.
-//   - close() closes every launched browser; idempotent.
+//   - Concurrent getPage(type) calls dedupe via pagePromises — only one launch.
+//   - close() closes every launched browser; idempotent; race-safe with in-flight launches.
 //   - Signal handlers (SIGINT/SIGTERM) are wired by the consumer, not here.
 
 import type { Browser, Page } from 'playwright'
@@ -37,6 +38,7 @@ const PAGE_HTML = `<!DOCTYPE html>
 export class BrowserPool {
   private browsers = new Map<BrowserType, Browser>()
   private pages = new Map<BrowserType, Page>()
+  private pagePromises = new Map<BrowserType, Promise<Page>>()
   private closed = false
   private loadPlaywright: () => Promise<PlaywrightModule>
 
@@ -45,9 +47,25 @@ export class BrowserPool {
   }
 
   async getPage(type: BrowserType): Promise<Page> {
+    if (this.closed) throw new Error('BrowserPool is closed')
+
     const cached = this.pages.get(type)
     if (cached) return cached
 
+    const inFlight = this.pagePromises.get(type)
+    if (inFlight) return inFlight
+
+    const promise = this._launchPage(type)
+    this.pagePromises.set(type, promise)
+    try {
+      return await promise
+    } catch (err) {
+      this.pagePromises.delete(type)
+      throw err
+    }
+  }
+
+  private async _launchPage(type: BrowserType): Promise<Page> {
     let playwright: PlaywrightModule
     try {
       playwright = await this.loadPlaywright()
@@ -73,10 +91,27 @@ export class BrowserPool {
       throw err
     }
 
-    const page = await browser.newPage()
-    await registerPretextRoute(page)
-    await page.setContent(PAGE_HTML)
-    await page.waitForFunction(() => (globalThis as any).__pretext !== undefined, null, { timeout: 5000 })
+    // If the pool was closed while we were launching, don't leak the browser.
+    if (this.closed) {
+      await browser.close().catch(() => {})
+      throw new Error('BrowserPool is closed')
+    }
+
+    let page: Page
+    try {
+      page = await browser.newPage()
+      await registerPretextRoute(page)
+      await page.setContent(PAGE_HTML)
+      await page.waitForFunction(() => (globalThis as any).__pretext !== undefined, null, { timeout: 5000 })
+    } catch (err) {
+      await browser.close().catch(() => {})
+      throw err
+    }
+
+    if (this.closed) {
+      await browser.close().catch(() => {})
+      throw new Error('BrowserPool is closed')
+    }
 
     this.browsers.set(type, browser)
     this.pages.set(type, page)
@@ -89,6 +124,7 @@ export class BrowserPool {
     const all = Array.from(this.browsers.values())
     this.browsers.clear()
     this.pages.clear()
+    this.pagePromises.clear()
     await Promise.all(all.map(async (b) => {
       try { await b.close() } catch { /* best effort */ }
     }))
