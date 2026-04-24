@@ -72,7 +72,33 @@ The `pretext-advisor` agent handles complex architectural questions that span mu
 | `pretext_explain` | Search the knowledge base by topic | Look up architecture, browser compat, edge cases |
 | `pretext_source` | Read pretext source code by module/function | Understand internal behavior |
 
-Tools run in **structural mode** — deterministic width estimates without a real browser. A Playwright-based accurate mode is planned for pixel-precise debugging.
+By default, `pretext_run` and `pretext_measure` execute in **structural mode** — a canvas shim provides deterministic width estimates without a real browser, which is fast and reproducible but approximate.
+
+#### `pretext_run`
+
+Executes a pretext layout and returns line count and total height. Defaults to structural mode.
+
+**Accurate mode (opt-in):** Set `mode: 'accurate'` to run in a real headless browser for pixel-precise font metrics. Useful for debugging cross-browser divergence or shaping-context issues where structural mode's approximate widths diverge from real browsers. Requires Playwright:
+
+```bash
+bun add playwright
+bunx playwright install chromium  # or firefox, or webkit
+```
+
+Select the engine with `browser: 'chromium' | 'firefox' | 'webkit'` (default: chromium).
+
+#### `pretext_measure`
+
+Returns per-segment widths and segmentation details for a given text/font. Defaults to structural mode (canvas shim).
+
+**Accurate mode (opt-in):** Set `mode: 'accurate'` to run in a real headless browser for pixel-precise font metrics. Useful for debugging cross-browser divergence or shaping-context issues where structural mode's approximate widths diverge from real browsers. Requires Playwright:
+
+```bash
+bun add playwright
+bunx playwright install chromium  # or firefox, or webkit
+```
+
+Select the engine with `browser: 'chromium' | 'firefox' | 'webkit'` (default: chromium).
 
 ## Knowledge Base
 
