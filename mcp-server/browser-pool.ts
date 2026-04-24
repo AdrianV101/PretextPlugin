@@ -11,7 +11,8 @@
 import type { Browser, Page } from 'playwright'
 import { registerPretextRoute, PRETEXT_ORIGIN } from './pretext-browser-bundle.js'
 
-export type BrowserType = 'chromium' | 'firefox' | 'webkit'
+export const BROWSER_TYPES = ['chromium', 'firefox', 'webkit'] as const
+export type BrowserType = typeof BROWSER_TYPES[number]
 
 type PlaywrightModule = {
   chromium: { launch: (opts?: unknown) => Promise<Browser> }

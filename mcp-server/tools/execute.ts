@@ -2,6 +2,7 @@
 
 import { loadPretext } from '../version.js'
 import { browserRun, browserMeasure } from '../browser.js'
+import type { BrowserType } from '../browser-pool.js'
 
 const PROJECT_DIR = process.cwd()
 
@@ -14,7 +15,7 @@ export type RunInput = {
   locale?: string
   rich?: boolean
   mode?: 'structural' | 'accurate'
-  browser?: 'chromium' | 'firefox' | 'webkit'
+  browser?: BrowserType
 }
 
 export type RunOutput = {
@@ -58,7 +59,7 @@ export type MeasureInput = {
   whiteSpace?: 'normal' | 'pre-wrap'
   locale?: string
   mode?: 'structural' | 'accurate'
-  browser?: 'chromium' | 'firefox' | 'webkit'
+  browser?: BrowserType
 }
 
 export type SegmentInfo = {
