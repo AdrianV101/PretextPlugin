@@ -186,9 +186,14 @@ describe('BrowserPool', () => {
   test('close() during page setup closes the browser and rejects the caller', async () => {
     let waitResolve: (() => void) | null = null
     const waitGate = new Promise<void>((resolve) => { waitResolve = resolve })
+    let setupReached: (() => void) | null = null
+    const setupReachedGate = new Promise<void>((resolve) => { setupReached = resolve })
     const mockPage = makePage()
-    // Make waitForFunction hang until we let it go.
-    mockPage.waitForFunction = mock(async () => { await waitGate })
+    // Signal entry into waitForFunction, then hang until released.
+    mockPage.waitForFunction = mock(async () => {
+      setupReached!()
+      await waitGate
+    })
     const mockBrowser = makeBrowser(mockPage)
     const launchMock = mock(async () => mockBrowser as any)
     const p = new BrowserPool({
@@ -199,8 +204,8 @@ describe('BrowserPool', () => {
       }) as any,
     })
     const inFlight = p.getPage('chromium')
-    // Yield so _launchPage has awaited launch() and is now awaiting waitForFunction.
-    await new Promise((resolve) => setTimeout(resolve, 10))
+    // Wait deterministically until _launchPage is parked inside waitForFunction.
+    await setupReachedGate
     const closed = p.close()
     waitResolve!()
     await closed
