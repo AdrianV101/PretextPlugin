@@ -8,6 +8,7 @@ import { installCanvasShim } from './canvas-shim.js'
 import { handleRun, handleMeasure } from './tools/execute.js'
 import { handleValidate } from './tools/validate.js'
 import { handleExplain, handleSource } from './tools/knowledge.js'
+import { BROWSER_TYPES } from './browser-pool.js'
 
 // Install canvas shim before any pretext import
 installCanvasShim()
@@ -24,7 +25,7 @@ server.registerTool(
   {
     title: 'Run Pretext Layout',
     description:
-      'Run pretext text layout. Returns line count and height. With rich=true, returns per-line text and widths. Uses structural mode (deterministic but approximate widths).',
+      'Run pretext text layout. Returns line count and height. With rich=true, returns per-line text and widths. Default mode=structural is fast and deterministic but uses approximate widths. Set mode=accurate to run in a real headless browser for pixel-precise font metrics.',
     inputSchema: z.object({
       text: z.string().describe('Text to lay out'),
       font: z.string().describe('CSS font string, e.g. "16px Inter"'),
@@ -33,6 +34,8 @@ server.registerTool(
       whiteSpace: z.enum(['normal', 'pre-wrap']).optional().describe('Whitespace mode (default: normal)'),
       locale: z.string().optional().describe('Locale for Intl.Segmenter (e.g. "th" for Thai)'),
       rich: z.boolean().optional().describe('Return per-line text and widths'),
+      mode: z.enum(['structural', 'accurate']).optional().describe('Execution mode. structural (default): fast, deterministic, approximate widths from a canvas shim. accurate: runs pretext in a real headless browser for pixel-precise font metrics. Use accurate for debugging cross-browser divergence or shaping-context issues.'),
+      browser: z.enum(BROWSER_TYPES).optional().describe('Browser engine for accurate mode (default: chromium). Ignored in structural mode.'),
     }),
   },
   async (input) => {
@@ -50,12 +53,14 @@ server.registerTool(
   {
     title: 'Measure Text Segments',
     description:
-      'Analyze text segmentation and widths. Returns segment breakdown with per-segment text, width, and break kind. Uses structural mode.',
+      'Analyze text segmentation and widths. Returns segment breakdown with per-segment text, width, and break kind. Default mode=structural uses canvas-shim widths; mode=accurate uses real browser font metrics.',
     inputSchema: z.object({
       text: z.string().describe('Text to measure'),
       font: z.string().describe('CSS font string, e.g. "16px Inter"'),
       whiteSpace: z.enum(['normal', 'pre-wrap']).optional().describe('Whitespace mode'),
       locale: z.string().optional().describe('Locale for Intl.Segmenter'),
+      mode: z.enum(['structural', 'accurate']).optional().describe('Execution mode. structural (default): fast canvas-shim widths. accurate: real browser font metrics.'),
+      browser: z.enum(BROWSER_TYPES).optional().describe('Browser engine for accurate mode (default: chromium). Ignored in structural mode.'),
     }),
   },
   async (input) => {

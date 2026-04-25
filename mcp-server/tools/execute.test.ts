@@ -1,5 +1,7 @@
-import { describe, test, expect, beforeAll } from 'bun:test'
+import { describe, test, expect, beforeAll, mock, beforeEach, afterEach } from 'bun:test'
 import { installCanvasShim } from '../canvas-shim.js'
+import { handleRun, handleMeasure } from './execute.js'
+import { __setPoolForTesting, __resetPoolForTesting } from '../browser.js'
 
 beforeAll(() => {
   installCanvasShim()
@@ -117,5 +119,78 @@ describe('pretext_run edge cases', () => {
       locale: 'ja',
     })
     expect(result.lineCount).toBeGreaterThanOrEqual(1)
+  })
+})
+
+describe('handleRun mode dispatch', () => {
+  beforeEach(() => __resetPoolForTesting())
+  afterEach(() => __resetPoolForTesting())
+
+  test("mode='structural' runs through loadPretext (unchanged path)", async () => {
+    const getPage = mock(async () => { throw new Error('pool should not be touched') })
+    __setPoolForTesting({ getPage, close: async () => {} } as any)
+    const out = await handleRun({
+      text: 'hello',
+      font: '16px sans-serif',
+      width: 200,
+      lineHeight: 20,
+      mode: 'structural',
+    })
+    expect(out.lineCount).toBeGreaterThanOrEqual(1)
+    expect(out.height).toBeGreaterThan(0)
+    expect(getPage).not.toHaveBeenCalled()
+  })
+
+  test("mode omitted defaults to structural", async () => {
+    const getPage = mock(async () => { throw new Error('pool should not be touched') })
+    __setPoolForTesting({ getPage, close: async () => {} } as any)
+    const out = await handleRun({
+      text: 'hello',
+      font: '16px sans-serif',
+      width: 200,
+      lineHeight: 20,
+    })
+    expect(out.lineCount).toBeGreaterThanOrEqual(1)
+    expect(getPage).not.toHaveBeenCalled()
+  })
+
+  test("mode='accurate' delegates to browserRun via the pool", async () => {
+    const evaluate = mock(async () => ({ lineCount: 9, height: 180 }))
+    const fakePool = {
+      getPage: async () => ({ evaluate }),
+      close: async () => {},
+    }
+    __setPoolForTesting(fakePool as any)
+    const out = await handleRun({
+      text: 'x',
+      font: '16px sans-serif',
+      width: 100,
+      lineHeight: 20,
+      mode: 'accurate',
+    })
+    expect(out.lineCount).toBe(9)
+    expect(out.height).toBe(180)
+    expect(evaluate).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('handleMeasure mode dispatch', () => {
+  beforeEach(() => __resetPoolForTesting())
+  afterEach(() => __resetPoolForTesting())
+
+  test("mode='accurate' delegates to browserMeasure via the pool", async () => {
+    const evaluate = mock(async () => ({ segments: [{ text: 'hi', width: 7, kind: 'text' }], totalWidth: 7 }))
+    const fakePool = {
+      getPage: async () => ({ evaluate }),
+      close: async () => {},
+    }
+    __setPoolForTesting(fakePool as any)
+    const out = await handleMeasure({
+      text: 'hi',
+      font: '16px sans-serif',
+      mode: 'accurate',
+    })
+    expect(out.totalWidth).toBe(7)
+    expect(out.segments).toHaveLength(1)
   })
 })

@@ -1,7 +1,7 @@
 [![MIT License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.x-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 [![Bun](https://img.shields.io/badge/Bun-1.x-f9f1e1?logo=bun&logoColor=black)](https://bun.sh)
-[![Tests](https://img.shields.io/badge/Tests-56%20passing-brightgreen)]()
+[![Tests](https://img.shields.io/badge/Tests-92%20total-brightgreen)]()
 [![pretext](https://img.shields.io/badge/pretext-v0.0.3-orange)](https://github.com/chenglou/pretext)
 
 # PretextPlugin
@@ -72,7 +72,33 @@ The `pretext-advisor` agent handles complex architectural questions that span mu
 | `pretext_explain` | Search the knowledge base by topic | Look up architecture, browser compat, edge cases |
 | `pretext_source` | Read pretext source code by module/function | Understand internal behavior |
 
-Tools run in **structural mode** — deterministic width estimates without a real browser. A Playwright-based accurate mode is planned for pixel-precise debugging.
+By default, `pretext_run` and `pretext_measure` execute in **structural mode** — a canvas shim provides deterministic width estimates without a real browser, which is fast and reproducible but approximate.
+
+#### `pretext_run`
+
+Executes a pretext layout and returns line count and total height. Defaults to structural mode.
+
+**Accurate mode (opt-in):** Set `mode: 'accurate'` to run in a real headless browser for pixel-precise font metrics. Useful for debugging cross-browser divergence or shaping-context issues where structural mode's approximate widths diverge from real browsers. Requires Playwright:
+
+```bash
+bun add playwright
+bunx playwright install chromium  # or firefox, or webkit
+```
+
+Select the engine with `browser: 'chromium' | 'firefox' | 'webkit'` (default: chromium).
+
+#### `pretext_measure`
+
+Returns per-segment widths and segmentation details for a given text/font. Defaults to structural mode (canvas shim).
+
+**Accurate mode (opt-in):** Set `mode: 'accurate'` to run in a real headless browser for pixel-precise font metrics. Useful for debugging cross-browser divergence or shaping-context issues where structural mode's approximate widths diverge from real browsers. Requires Playwright:
+
+```bash
+bun add playwright
+bunx playwright install chromium  # or firefox, or webkit
+```
+
+Select the engine with `browser: 'chromium' | 'firefox' | 'webkit'` (default: chromium).
 
 ## Knowledge Base
 
@@ -93,7 +119,7 @@ Tools run in **structural mode** — deterministic width estimates without a rea
 
 ```bash
 cd mcp-server && bun install        # Install dependencies
-cd mcp-server && bun test           # Run 56 tests
+cd mcp-server && bun test           # 86 pass + 6 gated on PRETEXT_ACCURATE_TESTS=1
 cd mcp-server && bun run index.ts   # Start MCP server (stdio)
 ```
 
@@ -115,7 +141,7 @@ PretextPlugin was built through a four-phase process:
 1. **Structured Reading** — 8 research notes analyzing pretext's source code, architecture, and API surface
 2. **Empirical Validation** — 23,040 browser tests across Chrome, Safari, and Firefox confirming accuracy for 12 scripts. ~92% of Phase 1 findings confirmed; the rest corrected
 3. **Knowledge Architecture** — Plugin design spec with 6 architectural decisions (structural vs. accurate mode, knowledge granularity, tool boundaries)
-4. **Implementation** — 3 skills, 1 agent, MCP server with 5 tools, 12-file knowledge base, 56 tests
+4. **Implementation** — 3 skills, 1 agent, MCP server with 5 tools, 12-file knowledge base, 92 tests
 
 ## Contributing
 
