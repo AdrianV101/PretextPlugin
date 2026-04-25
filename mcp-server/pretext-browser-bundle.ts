@@ -19,7 +19,8 @@ const ALLOWED_MODULES = new Set([
 ])
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
-const BUNDLED_DIR = resolve(__dirname, '..', 'pretext-bundled')
+const DEFAULT_BUNDLED_DIR = resolve(__dirname, '..', 'pretext-bundled')
+let bundledDir = DEFAULT_BUNDLED_DIR
 
 const fileCache = new Map<string, string>()
 
@@ -27,35 +28,63 @@ export function clearBundleCache(): void {
   fileCache.clear()
 }
 
-async function getModuleSource(filename: string): Promise<string | null> {
-  if (!ALLOWED_MODULES.has(filename)) return null
+export function __setBundledDirForTesting(dir: string): void {
+  bundledDir = dir
+  fileCache.clear()
+}
+
+export function __resetBundledDirForTesting(): void {
+  bundledDir = DEFAULT_BUNDLED_DIR
+  fileCache.clear()
+}
+
+type ModuleResult =
+  | { ok: true; body: string }
+  | { ok: false; reason: 'denied' }
+  | { ok: false; reason: 'read_failed'; error: Error }
+
+async function getModuleSource(filename: string): Promise<ModuleResult> {
+  if (!ALLOWED_MODULES.has(filename)) return { ok: false, reason: 'denied' }
   const cached = fileCache.get(filename)
-  if (cached !== undefined) return cached
+  if (cached !== undefined) return { ok: true, body: cached }
   try {
-    const body = await readFile(resolve(BUNDLED_DIR, filename), 'utf-8')
+    const body = await readFile(resolve(bundledDir, filename), 'utf-8')
     fileCache.set(filename, body)
-    return body
+    return { ok: true, body }
   } catch (err) {
-    process.stderr.write(
-      `pretext bundle: failed to read ${filename} from ${BUNDLED_DIR}: ${(err as Error).message}\n`
-    )
-    return null
+    return { ok: false, reason: 'read_failed', error: err as Error }
   }
 }
 
 export async function registerPretextRoute(page: Page): Promise<void> {
   await page.route(PRETEXT_HOST_PATTERN, async (route: Route) => {
-    const url = new URL(route.request().url())
-    const filename = url.pathname.replace(/^\//, '')
-    const source = await getModuleSource(filename)
-    if (source === null) {
-      await route.abort()
-      return
+    try {
+      const url = new URL(route.request().url())
+      const filename = url.pathname.replace(/^\//, '')
+      const result = await getModuleSource(filename)
+      if (result.ok) {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/javascript',
+          body: result.body,
+        })
+        return
+      }
+      if (result.reason === 'denied') {
+        await route.abort()
+        return
+      }
+      // Surface fs errors as a 500 so the in-page import rejects with the real
+      // cause rather than the page hanging until waitForFunction times out.
+      await route.fulfill({
+        status: 500,
+        contentType: 'text/plain',
+        body: `pretext bundle: failed to read ${filename} from ${bundledDir}: ${result.error.message}`,
+      })
+    } catch (err) {
+      // Page closed mid-request, or fulfill/abort itself rejected. Nothing
+      // useful to recover; log so the failure isn't fully invisible.
+      process.stderr.write(`pretext route handler: ${(err as Error).message}\n`)
     }
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/javascript',
-      body: source,
-    })
   })
 }
