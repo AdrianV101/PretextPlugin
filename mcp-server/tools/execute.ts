@@ -8,7 +8,6 @@ import type { BrowserType } from '../browser-pool.js'
 const PROJECT_DIR = process.cwd()
 
 export type RunInput = {
-  // Plain-text inputs use `text`; rich-inline inputs use `richInline` with structured items.
   text?: string
   richInline?: RichInlineItem[]
   font?: string

@@ -160,6 +160,36 @@ describe('pretext_run rich-inline mode', () => {
     ).rejects.toThrow(/either `text` or `richInline`/i)
   })
 
+  test('rejects when neither text nor richInline is provided', async () => {
+    const { handleRun } = await import('./execute.js')
+    await expect(
+      handleRun({
+        font: '16px sans-serif',
+        width: 100,
+        lineHeight: 20,
+      } as any),
+    ).rejects.toThrow(/one of `text` or `richInline`/i)
+  })
+
+  test('rich: true on rich-inline path returns [item N] synthesized line text', async () => {
+    const { handleRun } = await import('./execute.js')
+    const result = await handleRun({
+      richInline: [
+        { text: 'Hi ', font: '16px sans-serif' },
+        { text: '@alice', font: '16px sans-serif', break: 'never' },
+        { text: ' how are you?', font: '16px sans-serif' },
+      ],
+      font: '16px sans-serif',
+      width: 1000,
+      lineHeight: 20,
+      rich: true,
+    } as any)
+    expect(result.lines).toBeDefined()
+    expect(result.lines).toHaveLength(1)
+    expect(result.lines![0]!.text).toBe('[item 0] [item 1] [item 2]')
+    expect(result.lines![0]!.width).toBeGreaterThan(0)
+  })
+
   test('rich-inline with narrow width wraps onto multiple lines', async () => {
     const { handleRun } = await import('./execute.js')
     const result = await handleRun({

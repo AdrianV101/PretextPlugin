@@ -94,8 +94,8 @@ Default `'normal'` mode collapses whitespace. Pre-formatted content (code blocks
 
 ## Excessive letterSpacing Values *(v0.0.6+)*
 
-**Pattern:** Two-or-more-digit `letterSpacing` value
-**Detection:** `letterSpacing: 12` etc. (≥10 px)
+**Pattern:** `letterSpacing` value with integer part ≥10 (whole or fractional — `12`, `10.5`, `25.0`)
+**Detection:** `letterSpacing: 12` / `25.5` / `100`
 **Severity:** Info
 
 Pretext's `letterSpacing` is plain CSS pixels — not em, not %. A 10+ pixel gap between glyphs at typical body font sizes is almost always unit confusion (CSS `letter-spacing: 0.5em` ported as `letterSpacing: 8`).

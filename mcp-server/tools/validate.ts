@@ -95,22 +95,24 @@ const checks: PatternCheck[] = [
   {
     pattern: 'excessive-letterspacing',
     severity: 'info',
-    test: (code) => /letterSpacing\s*:\s*-?\d{2,}(?!\s*\.)/.test(code),
+    // Match integer part >= 10 whether the value is whole or fractional.
+    // Email-like decimals (8.5) stay clean; bug values (10, 10.5, 25.0, 99.9) get caught.
+    test: (code) => /letterSpacing\s*:\s*(?:\d{3,}|[1-9]\d)(?:\.\d+)?\b/.test(code),
     explanation:
-      'letterSpacing values ≥10 in pretext are CSS pixels — not em or percent. A 10+ pixel gap between glyphs is almost always a unit-confusion bug.',
+      'letterSpacing values with absolute value ≥10 in pretext are CSS pixels — not em or percent. A 10+ pixel gap between glyphs is almost always a unit-confusion bug.',
     fix: 'Use small fractional values (e.g. 0.5–2). pretext\'s letterSpacing is plain CSS px, applied between every grapheme.',
   },
   {
     pattern: 'prepare-vs-rich-inline-confusion',
     severity: 'warning',
     test: (code) => {
-      // Already on the rich-inline path? Don't flag.
       if (/prepareRichInline\s*\(/.test(code)) return false
       const usesPrepare = /\bprepare\s*\(/.test(code) || /\bprepareWithSegments\s*\(/.test(code)
       if (!usesPrepare) return false
-      // Inline content like "@alice" or "#tag" inside a string passed to prepare
-      // suggests the author should be using prepareRichInline (chips/mentions).
-      const hasChipShapedString = /['"`][^'"`\n]*(?:@\w+|#\w+)[^'"`\n]*['"`]/.test(code)
+      // Chip/mention markers must sit at a word boundary: start-of-string,
+      // whitespace, or comma. Avoids false-positives on email addresses
+      // ('me@example.com') and other in-word @/# uses.
+      const hasChipShapedString = /['"`](?:[^'"`\n]*[\s,])?[@#]\w+(?:[\s,][^'"`\n]*)?['"`]/.test(code)
       return hasChipShapedString
     },
     explanation:

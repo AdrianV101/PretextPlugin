@@ -128,11 +128,28 @@ describe('pretext_validate', () => {
     expect(result.issues.some(i => i.pattern === 'excessive-letterspacing')).toBe(true)
   })
 
+  test('flags fractional excessive letterSpacing (the unit-confusion shape)', () => {
+    for (const value of ['10.5', '25.0', '99.9']) {
+      const result = handleValidate({
+        code: `prepare(text, font, { letterSpacing: ${value} })`,
+      })
+      expect(
+        result.issues.some(i => i.pattern === 'excessive-letterspacing'),
+        `expected ${value} to flag`,
+      ).toBe(true)
+    }
+  })
+
   test('does not flag reasonable letterSpacing values', () => {
-    const result = handleValidate({
-      code: `prepare(text, font, { letterSpacing: 0.5 })`,
-    })
-    expect(result.issues.some(i => i.pattern === 'excessive-letterspacing')).toBe(false)
+    for (const value of ['0', '0.5', '2', '8.5', '9.9']) {
+      const result = handleValidate({
+        code: `prepare(text, font, { letterSpacing: ${value} })`,
+      })
+      expect(
+        result.issues.some(i => i.pattern === 'excessive-letterspacing'),
+        `expected ${value} not to flag`,
+      ).toBe(false)
+    }
   })
 
   test('flags prepare() use on text with mention/chip patterns', () => {
@@ -143,6 +160,13 @@ describe('pretext_validate', () => {
       `,
     })
     expect(result.issues.some(i => i.pattern === 'prepare-vs-rich-inline-confusion')).toBe(true)
+  })
+
+  test('does not flag email addresses inside prepare()', () => {
+    const result = handleValidate({
+      code: `prepare("contact me at me@example.com", font)`,
+    })
+    expect(result.issues.some(i => i.pattern === 'prepare-vs-rich-inline-confusion')).toBe(false)
   })
 
   test('does not flag prepareRichInline use on chip-shaped content', () => {

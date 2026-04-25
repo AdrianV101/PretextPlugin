@@ -233,7 +233,7 @@ type RichInlineStats = { lineCount: number; maxLineWidth: number }
 - **Variable width per line (non-rectangular)** → `prepareWithSegments()` + `layoutNextLine()` (use `layoutNextLineRange` + `materializeLineRange` to defer string work)
 - **Intrinsic/shrinkwrap width** → `prepareWithSegments()` + `measureNaturalWidth()`
 - **Mentions, chips, mixed-font inline (chat, markdown line)** → `prepareRichInline()` + `walkRichInlineLineRanges()` (or `measureRichInlineStats()` for just totals)
-- **CJK or Hangul where multi-character runs must stay together** → add `wordBreak: 'keep-all'` to options
+- **CJK or Hangul where multi-character runs must stay together** → add `wordBreak: 'keep-all'` to options *(v0.0.5+)*
 
 ## Prepare-to-Layout Cost Ratio
 

@@ -204,6 +204,22 @@ export async function loadPretextRichInline(projectDir: string): Promise<RichInl
   }
   const mod = await import(richPath)
 
+  const required = [
+    'prepareRichInline',
+    'layoutNextRichInlineLineRange',
+    'materializeRichInlineLineRange',
+    'walkRichInlineLineRanges',
+    'measureRichInlineStats',
+  ] as const
+  for (const name of required) {
+    if (typeof mod[name] !== 'function') {
+      throw new Error(
+        `rich-inline module at ${richPath} is missing export '${name}'. ` +
+        `The install may be corrupted or from an unsupported pretext fork.`,
+      )
+    }
+  }
+
   cachedRichInlineModule = {
     prepareRichInline: mod.prepareRichInline,
     layoutNextRichInlineLineRange: mod.layoutNextRichInlineLineRange,
