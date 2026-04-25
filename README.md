@@ -1,7 +1,7 @@
 [![MIT License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.x-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 [![Bun](https://img.shields.io/badge/Bun-1.x-f9f1e1?logo=bun&logoColor=black)](https://bun.sh)
-[![Tests](https://img.shields.io/badge/Tests-92%20total-brightgreen)]()
+[![tests](https://github.com/AdrianV101/PretextPlugin/actions/workflows/test.yml/badge.svg)](https://github.com/AdrianV101/PretextPlugin/actions/workflows/test.yml)
 [![pretext](https://img.shields.io/badge/pretext-v0.0.3-orange)](https://github.com/chenglou/pretext)
 
 # PretextPlugin
