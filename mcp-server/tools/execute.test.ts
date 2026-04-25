@@ -190,6 +190,31 @@ describe('pretext_run rich-inline mode', () => {
     expect(result.lines![0]!.width).toBeGreaterThan(0)
   })
 
+  test('rich: true on rich-inline path partitions items across multiple lines', async () => {
+    const { handleRun } = await import('./execute.js')
+    // Narrow width forces wrapping; the per-line synthesized text should
+    // mention only the items present on that line.
+    const result = await handleRun({
+      richInline: [
+        { text: 'one two ', font: '16px sans-serif' },
+        { text: '@alice', font: '16px sans-serif', break: 'never' },
+        { text: ' three four five six', font: '16px sans-serif' },
+      ],
+      font: '16px sans-serif',
+      width: 60,
+      lineHeight: 20,
+      rich: true,
+    } as any)
+    expect(result.lines).toBeDefined()
+    expect(result.lineCount).toBeGreaterThan(1)
+    // Every emitted line text must be a `[item N] ...` pattern only
+    // referencing items 0–2; nothing else may leak in.
+    for (const line of result.lines!) {
+      expect(line.text).toMatch(/^(?:\[item [0-2]\])(?: \[item [0-2]\])*$/)
+      expect(line.width).toBeGreaterThan(0)
+    }
+  })
+
   test('rich-inline with narrow width wraps onto multiple lines', async () => {
     const { handleRun } = await import('./execute.js')
     const result = await handleRun({

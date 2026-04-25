@@ -105,7 +105,7 @@ Pretext's `letterSpacing` is plain CSS pixels — not em, not %. A 10+ pixel gap
 ## Confusing prepareWithSegments with prepareRichInline *(v0.0.5+)*
 
 **Pattern:** `prepare()`/`prepareWithSegments()` called on a string containing chip-shaped tokens (`@user`, `#tag`)
-**Detection:** `prepare(` with a string literal containing `@\w+` or `#\w+`
+**Detection:** `prepare(` with a string literal where `@user` or `#tag` sits at a word boundary (start of string, whitespace, or comma — not inside an email like `me@example.com`)
 **Severity:** Warning
 
 The plain prepare path treats the entire input as flat text, so a mention or chip can be mid-word-broken. The v0.0.5+ `@chenglou/pretext/rich-inline` sub-module exists for exactly this case: each chip becomes its own item with `break: 'never'`, optional `extraWidth` for chrome, and its own `letterSpacing`/`font`. The "rich" terminology in `prepareWithSegments` refers to segment exposure, not to chips/mentions — they are different APIs.

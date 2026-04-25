@@ -156,6 +156,20 @@ let cachedProjectDir: string | null = null
 let cachedRichInlineModule: RichInlineModule | null = null
 let cachedRichInlineProjectDir: string | null = null
 
+// Required exports for any pretext install. v0.0.5+ helpers (measureLineStats,
+// measureNaturalWidth, layoutNextLineRange, materializeLineRange) are typed
+// optional and intentionally not validated — older user installs lack them.
+const REQUIRED_PRETEXT_EXPORTS: ReadonlyArray<keyof PretextModule> = [
+  'prepare',
+  'prepareWithSegments',
+  'layout',
+  'layoutWithLines',
+  'walkLineRanges',
+  'layoutNextLine',
+  'clearCache',
+  'setLocale',
+]
+
 export async function loadPretext(projectDir: string): Promise<PretextModule> {
   if (cachedModule && cachedProjectDir === projectDir) return cachedModule
 
@@ -164,6 +178,15 @@ export async function loadPretext(projectDir: string): Promise<PretextModule> {
 
   const location = await locatePretext(projectDir)
   const mod = await import(location.path)
+
+  for (const name of REQUIRED_PRETEXT_EXPORTS) {
+    if (typeof mod[name] !== 'function') {
+      throw new Error(
+        `pretext module at ${location.path} is missing export '${name}'. ` +
+        `The install may be corrupted or from an unsupported pretext fork.`,
+      )
+    }
+  }
 
   cachedModule = {
     prepare: mod.prepare,
@@ -204,13 +227,13 @@ export async function loadPretextRichInline(projectDir: string): Promise<RichInl
   }
   const mod = await import(richPath)
 
-  const required = [
+  const required: ReadonlyArray<keyof RichInlineModule> = [
     'prepareRichInline',
     'layoutNextRichInlineLineRange',
     'materializeRichInlineLineRange',
     'walkRichInlineLineRanges',
     'measureRichInlineStats',
-  ] as const
+  ]
   for (const name of required) {
     if (typeof mod[name] !== 'function') {
       throw new Error(
