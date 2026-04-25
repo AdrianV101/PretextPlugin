@@ -1,6 +1,7 @@
 // Serves pretext-bundled/*.js to a Playwright page via route interception.
 // The browser's module resolver handles relative imports (./bidi.js etc.)
-// against the same fake origin, so the single route handler covers all 5 files.
+// against the same fake origin, so the single route handler covers every file
+// in the allowlist below.
 
 import { readFile } from 'node:fs/promises'
 import { resolve, dirname } from 'node:path'
@@ -15,7 +16,10 @@ const ALLOWED_MODULES = new Set([
   'analysis.js',
   'bidi.js',
   'line-break.js',
+  'line-text.js',
   'measurement.js',
+  'rich-inline.js',
+  'generated/bidi-data.js',
 ])
 
 const __dirname = dirname(fileURLToPath(import.meta.url))

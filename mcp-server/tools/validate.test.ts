@@ -103,4 +103,79 @@ describe('pretext_validate', () => {
     const result = handleValidate({ code: '' })
     expect(result.issues.length).toBe(0)
   })
+
+  test('flags wordBreak: keep-all on Latin-only code (no CJK escapes)', () => {
+    const result = handleValidate({
+      code: `prepare(text, "16px Inter", { wordBreak: 'keep-all' })`,
+    })
+    expect(result.issues.some(i => i.pattern === 'wordbreak-misuse')).toBe(true)
+  })
+
+  test('does not flag wordBreak: keep-all when code references CJK ranges', () => {
+    const result = handleValidate({
+      code: `
+        // Korean: \\uAC00-\\uD7A3 sliding window
+        prepare(text, "16px Inter", { wordBreak: 'keep-all' })
+      `,
+    })
+    expect(result.issues.some(i => i.pattern === 'wordbreak-misuse')).toBe(false)
+  })
+
+  test('flags excessive letterSpacing values (>=10)', () => {
+    const result = handleValidate({
+      code: `prepare(text, font, { letterSpacing: 12 })`,
+    })
+    expect(result.issues.some(i => i.pattern === 'excessive-letterspacing')).toBe(true)
+  })
+
+  test('flags fractional excessive letterSpacing (the unit-confusion shape)', () => {
+    for (const value of ['10.5', '25.0', '99.9']) {
+      const result = handleValidate({
+        code: `prepare(text, font, { letterSpacing: ${value} })`,
+      })
+      expect(
+        result.issues.some(i => i.pattern === 'excessive-letterspacing'),
+        `expected ${value} to flag`,
+      ).toBe(true)
+    }
+  })
+
+  test('does not flag reasonable letterSpacing values', () => {
+    for (const value of ['0', '0.5', '2', '8.5', '9.9']) {
+      const result = handleValidate({
+        code: `prepare(text, font, { letterSpacing: ${value} })`,
+      })
+      expect(
+        result.issues.some(i => i.pattern === 'excessive-letterspacing'),
+        `expected ${value} not to flag`,
+      ).toBe(false)
+    }
+  })
+
+  test('flags prepare() use on text with mention/chip patterns', () => {
+    const result = handleValidate({
+      code: `
+        const prepared = prepare("hi @alice and @bob, see #project-x", font)
+        layout(prepared, width, 20)
+      `,
+    })
+    expect(result.issues.some(i => i.pattern === 'prepare-vs-rich-inline-confusion')).toBe(true)
+  })
+
+  test('does not flag email addresses inside prepare()', () => {
+    const result = handleValidate({
+      code: `prepare("contact me at me@example.com", font)`,
+    })
+    expect(result.issues.some(i => i.pattern === 'prepare-vs-rich-inline-confusion')).toBe(false)
+  })
+
+  test('does not flag prepareRichInline use on chip-shaped content', () => {
+    const result = handleValidate({
+      code: `
+        const items = [{ text: '@alice', font, break: 'never' }]
+        const prepared = prepareRichInline(items)
+      `,
+    })
+    expect(result.issues.some(i => i.pattern === 'prepare-vs-rich-inline-confusion')).toBe(false)
+  })
 })

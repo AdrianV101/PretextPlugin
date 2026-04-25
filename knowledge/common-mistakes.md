@@ -82,6 +82,36 @@ Default `'normal'` mode collapses whitespace. Pre-formatted content (code blocks
 
 **Fix:** Pass `{ whiteSpace: 'pre-wrap' }` to `prepare()`.
 
+## wordBreak: 'keep-all' on Latin-Only Text *(v0.0.5+)*
+
+**Pattern:** `{ wordBreak: 'keep-all' }` passed to `prepare()` for content that contains no CJK or Hangul
+**Detection:** `wordBreak: 'keep-all'` literal with no CJK/Hangul Unicode escapes or literals nearby
+**Severity:** Warning
+
+`keep-all` only affects CJK and Hangul. On Latin/Cyrillic/Arabic content it is a no-op and obscures intent — readers will assume it changes word-breaking when it does not.
+
+**Fix:** Drop the option, or condition it on detected script.
+
+## Excessive letterSpacing Values *(v0.0.6+)*
+
+**Pattern:** `letterSpacing` value with integer part ≥10 (whole or fractional — `12`, `10.5`, `25.0`)
+**Detection:** `letterSpacing: 12` / `25.5` / `100`
+**Severity:** Info
+
+Pretext's `letterSpacing` is plain CSS pixels — not em, not %. A 10+ pixel gap between glyphs at typical body font sizes is almost always unit confusion (CSS `letter-spacing: 0.5em` ported as `letterSpacing: 8`).
+
+**Fix:** Use small fractional values (0.25–2). If you have an em value, multiply by font size in px.
+
+## Confusing prepareWithSegments with prepareRichInline *(v0.0.5+)*
+
+**Pattern:** `prepare()`/`prepareWithSegments()` called on a string containing chip-shaped tokens (`@user`, `#tag`)
+**Detection:** `prepare(` with a string literal where `@user` or `#tag` sits at a word boundary (start of string, whitespace, or comma — not inside an email like `me@example.com`)
+**Severity:** Warning
+
+The plain prepare path treats the entire input as flat text, so a mention or chip can be mid-word-broken. The v0.0.5+ `@chenglou/pretext/rich-inline` sub-module exists for exactly this case: each chip becomes its own item with `break: 'never'`, optional `extraWidth` for chrome, and its own `letterSpacing`/`font`. The "rich" terminology in `prepareWithSegments` refers to segment exposure, not to chips/mentions — they are different APIs.
+
+**Fix:** Switch to `prepareRichInline(items)` and break out chips/mentions as items with `break: 'never'`. See `knowledge/modules/rich-inline.md`.
+
 ## Accessing PreparedText Internals
 
 **Pattern:** Accessing internal properties of opaque PreparedText handle

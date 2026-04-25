@@ -83,6 +83,58 @@ describe('end-to-end integration', () => {
     expect(result.height).toBe(60)
   })
 
+  test('rich-inline (v0.0.5+) full pipeline with chips and stats', async () => {
+    const { handleRun } = await import('./tools/execute.js')
+
+    const result = await handleRun({
+      richInline: [
+        { text: 'Welcome ', font: '16px sans-serif' },
+        { text: '@alice', font: '16px sans-serif', break: 'never' },
+        { text: ' and ', font: '16px sans-serif' },
+        { text: '@bob', font: '16px sans-serif', break: 'never' },
+        { text: ' to the ', font: '16px sans-serif' },
+        { text: '#design', font: '16px sans-serif', break: 'never' },
+        { text: ' channel', font: '16px sans-serif' },
+      ],
+      font: '16px sans-serif',
+      width: 200,
+      lineHeight: 20,
+    } as any)
+
+    expect(result.lineCount).toBeGreaterThan(0)
+    expect(result.height).toBe(result.lineCount * 20)
+  })
+
+  test('letterSpacing (v0.0.6+) measurably widens text', async () => {
+    const { handleMeasure } = await import('./tools/execute.js')
+
+    const tight = await handleMeasure({
+      text: 'spacing test',
+      font: '16px sans-serif',
+      letterSpacing: 0,
+    })
+    const loose = await handleMeasure({
+      text: 'spacing test',
+      font: '16px sans-serif',
+      letterSpacing: 3,
+    })
+    expect(loose.totalWidth).toBeGreaterThan(tight.totalWidth)
+  })
+
+  test('explain returns the new rich-inline knowledge file', async () => {
+    const { handleExplain } = await import('./tools/knowledge.js')
+    const out = await handleExplain({ query: 'rich-inline mention chip atomic' })
+    expect(out.content.length).toBeGreaterThan(0)
+    expect(out.sources.some(s => s.includes('rich-inline'))).toBe(true)
+  })
+
+  test('source returns rich-inline module', async () => {
+    const { handleSource } = await import('./tools/knowledge.js')
+    const out = await handleSource({ module: 'rich-inline' })
+    expect(out.error).toBeUndefined()
+    expect(out.source).toContain('prepareRichInline')
+  })
+
   test('CJK text wraps at character boundaries', async () => {
     const { handleRun } = await import('./tools/execute.js')
 

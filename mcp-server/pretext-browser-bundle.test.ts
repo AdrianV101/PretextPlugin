@@ -57,6 +57,34 @@ describe('pretext-browser-bundle', () => {
     expect(arg.body).toContain('export function prepare')
   })
 
+  test('fulfills a request for rich-inline.js (v0.0.5+)', async () => {
+    const page = makePage()
+    await registerPretextRoute(page as any)
+    const route = await page.trigger(`${PRETEXT_ORIGIN}/rich-inline.js`)
+    expect(route.fulfill).toHaveBeenCalledTimes(1)
+    const [arg] = route.fulfill.mock.calls[0]!
+    expect(arg.status).toBe(200)
+    expect(arg.body).toContain('export function prepareRichInline')
+  })
+
+  test('fulfills a request for line-text.js (v0.0.6 dependency)', async () => {
+    const page = makePage()
+    await registerPretextRoute(page as any)
+    const route = await page.trigger(`${PRETEXT_ORIGIN}/line-text.js`)
+    expect(route.fulfill).toHaveBeenCalledTimes(1)
+    const [arg] = route.fulfill.mock.calls[0]!
+    expect(arg.status).toBe(200)
+  })
+
+  test('fulfills a request for generated/bidi-data.js (subdirectory)', async () => {
+    const page = makePage()
+    await registerPretextRoute(page as any)
+    const route = await page.trigger(`${PRETEXT_ORIGIN}/generated/bidi-data.js`)
+    expect(route.fulfill).toHaveBeenCalledTimes(1)
+    const [arg] = route.fulfill.mock.calls[0]!
+    expect(arg.status).toBe(200)
+  })
+
   test('aborts requests for modules not in pretext-bundled', async () => {
     const page = makePage()
     await registerPretextRoute(page as any)

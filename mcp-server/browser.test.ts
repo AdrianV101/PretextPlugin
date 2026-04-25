@@ -68,6 +68,54 @@ describe('browserRun', () => {
     expect(result.lines).toEqual([{ text: 'abc', width: 15 }, { text: 'def', width: 15 }])
   })
 
+  test('forwards every field on RunInput into the in-page args', async () => {
+    let received: any = null
+    const pool = makeFakePool((_fn, args) => {
+      received = args
+      return { lineCount: 1, height: 20 }
+    })
+    __setPoolForTesting(pool as any)
+    await browserRun({
+      text: 'hi there',
+      font: '16px sans-serif',
+      width: 200,
+      lineHeight: 24,
+      whiteSpace: 'pre-wrap',
+      wordBreak: 'keep-all',
+      letterSpacing: 2,
+      locale: 'th',
+      rich: true,
+    })
+    // Locks the args contract — any future drop or rename of an in-page arg
+    // would break this assertion.
+    expect(received.kind).toBe('run')
+    expect(received.text).toBe('hi there')
+    expect(received.font).toBe('16px sans-serif')
+    expect(received.width).toBe(200)
+    expect(received.lineHeight).toBe(24)
+    expect(received.whiteSpace).toBe('pre-wrap')
+    expect(received.wordBreak).toBe('keep-all')
+    expect(received.letterSpacing).toBe(2)
+    expect(received.locale).toBe('th')
+    expect(received.rich).toBe(true)
+  })
+
+  test('forwards richInline items to in-page args', async () => {
+    let received: any = null
+    const pool = makeFakePool((_fn, args) => {
+      received = args
+      return { lineCount: 1, height: 20 }
+    })
+    __setPoolForTesting(pool as any)
+    await browserRun({
+      richInline: [{ text: 'hi', font: '16px sans-serif' }],
+      font: '16px sans-serif',
+      width: 100,
+      lineHeight: 20,
+    } as any)
+    expect(received.richInline).toEqual([{ text: 'hi', font: '16px sans-serif' }])
+  })
+
   test('wraps page.evaluate errors as structured errors', async () => {
     const pool = makeFakePool(() => { throw new Error('pretext blew up') })
     __setPoolForTesting(pool as any)

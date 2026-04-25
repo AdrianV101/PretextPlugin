@@ -2,7 +2,7 @@
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.x-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 [![Bun](https://img.shields.io/badge/Bun-1.x-f9f1e1?logo=bun&logoColor=black)](https://bun.sh)
 [![tests](https://github.com/AdrianV101/PretextPlugin/actions/workflows/test.yml/badge.svg)](https://github.com/AdrianV101/PretextPlugin/actions/workflows/test.yml)
-[![pretext](https://img.shields.io/badge/pretext-v0.0.3-orange)](https://github.com/chenglou/pretext)
+[![pretext](https://img.shields.io/badge/pretext-v0.0.6%20bundled-orange)](https://github.com/chenglou/pretext)
 
 # PretextPlugin
 
@@ -68,7 +68,7 @@ The `pretext-advisor` agent handles complex architectural questions that span mu
 |---|---|---|
 | `pretext_run` | Execute text layout, get line count and height | Test layout parameters before writing code |
 | `pretext_measure` | Analyze text segmentation and per-segment widths | Debug why text wraps at an unexpected point |
-| `pretext_validate` | Check code for 6 common anti-patterns | Catch `system-ui` font, inlined `prepare()`, etc. |
+| `pretext_validate` | Check code for 9 common anti-patterns | Catch `system-ui` font, inlined `prepare()`, wordBreak/letterSpacing misuse, rich-inline confusion |
 | `pretext_explain` | Search the knowledge base by topic | Look up architecture, browser compat, edge cases |
 | `pretext_source` | Read pretext source code by module/function | Understand internal behavior |
 
@@ -111,7 +111,7 @@ Select the engine with `browser: 'chromium' | 'firefox' | 'webkit'` (default: ch
 - `browser-compat.md` — Chrome, Safari, Firefox behavior differences
 - `script-matrix.md` — Per-script accuracy (Latin, CJK, Arabic, Thai, and 8 more)
 - `edge-cases.md` — Zero-width chars, long words, empty strings, tabs
-- `modules/` — Deep dives into 5 source modules (analysis, measurement, line-break, layout, bidi)
+- `modules/` — Deep dives into source modules (analysis, measurement, line-break, layout, bidi, rich-inline)
 
 ## Development
 
@@ -119,7 +119,7 @@ Select the engine with `browser: 'chromium' | 'firefox' | 'webkit'` (default: ch
 
 ```bash
 cd mcp-server && bun install        # Install dependencies
-cd mcp-server && bun test           # 86 pass + 6 gated on PRETEXT_ACCURATE_TESTS=1
+cd mcp-server && bun test           # 109 pass + 6 gated on PRETEXT_ACCURATE_TESTS=1
 cd mcp-server && bun run index.ts   # Start MCP server (stdio)
 ```
 
@@ -131,7 +131,7 @@ skills/                      3 skill definitions
 agents/                      1 agent definition (pretext-advisor)
 mcp-server/                  Bun MCP server with 5 tools
 knowledge/                   12 reference files
-pretext-bundled/             Bundled pretext v0.0.3 dist
+pretext-bundled/             Bundled pretext v0.0.6 dist (incl. rich-inline)
 ```
 
 ## How It Was Built

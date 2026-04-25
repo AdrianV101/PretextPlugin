@@ -32,13 +32,11 @@
 //
 // Based on Sebastian Markbage's text-layout research (github.com/chenglou/text-layout).
 import { computeSegmentLevels } from './bidi.js';
-import { analyzeText, clearAnalysisCaches, endsWithClosingQuote, isCJK, kinsokuEnd, kinsokuStart, leftStickyPunctuation, setAnalysisLocale, } from './analysis.js';
-import { clearMeasurementCaches, getCorrectedSegmentWidth, getEngineProfile, getFontMeasurementState, getSegmentGraphemePrefixWidths, getSegmentGraphemeWidths, getSegmentMetrics, textMayContainEmoji, } from './measurement.js';
-import { countPreparedLines, layoutNextLineRange as stepPreparedLineRange, walkPreparedLines, } from './line-break.js';
+import { analyzeText, canContinueKeepAllTextRun, clearAnalysisCaches, endsWithClosingQuote, isCJK, isNumericRunSegment, kinsokuEnd, kinsokuStart, leftStickyPunctuation, setAnalysisLocale, } from './analysis.js';
+import { clearMeasurementCaches, getCorrectedSegmentWidth, getSegmentBreakableFitAdvances, getEngineProfile, getFontMeasurementState, getSegmentMetrics, textMayContainEmoji, } from './measurement.js';
+import { countPreparedLines, measurePreparedLineGeometry, normalizeLineStart, stepPreparedLineGeometry, walkPreparedLinesRaw, } from './line-break.js';
+import { buildLineTextFromRange, clearLineTextCaches, getLineTextCache, } from './line-text.js';
 let sharedGraphemeSegmenter = null;
-// Rich-path only. Reuses grapheme splits while materializing multiple lines
-// from the same prepared handle, without pushing that cache into the API.
-let sharedLineTextCaches = new WeakMap();
 function getSharedGraphemeSegmenter() {
     if (sharedGraphemeSegmenter === null) {
         sharedGraphemeSegmenter = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
@@ -55,8 +53,9 @@ function createEmptyPrepared(includeSegments) {
             kinds: [],
             simpleLineWalkFastPath: true,
             segLevels: null,
-            breakableWidths: [],
-            breakablePrefixWidths: [],
+            breakableFitAdvances: [],
+            letterSpacing: 0,
+            spacingGraphemeCounts: [],
             discretionaryHyphenWidth: 0,
             tabStopAdvance: 0,
             chunks: [],
@@ -70,34 +69,149 @@ function createEmptyPrepared(includeSegments) {
         kinds: [],
         simpleLineWalkFastPath: true,
         segLevels: null,
-        breakableWidths: [],
-        breakablePrefixWidths: [],
+        breakableFitAdvances: [],
+        letterSpacing: 0,
+        spacingGraphemeCounts: [],
         discretionaryHyphenWidth: 0,
         tabStopAdvance: 0,
         chunks: [],
     };
 }
-function measureAnalysis(analysis, font, includeSegments) {
+function buildBaseCjkUnits(segText, engineProfile) {
+    const units = [];
+    let unitParts = [];
+    let unitStart = 0;
+    let unitContainsCJK = false;
+    let unitEndsWithClosingQuote = false;
+    let unitIsSingleKinsokuEnd = false;
+    function pushUnit() {
+        if (unitParts.length === 0)
+            return;
+        units.push({
+            text: unitParts.length === 1 ? unitParts[0] : unitParts.join(''),
+            start: unitStart,
+        });
+        unitParts = [];
+        unitContainsCJK = false;
+        unitEndsWithClosingQuote = false;
+        unitIsSingleKinsokuEnd = false;
+    }
+    function startUnit(grapheme, start, graphemeContainsCJK) {
+        unitParts = [grapheme];
+        unitStart = start;
+        unitContainsCJK = graphemeContainsCJK;
+        unitEndsWithClosingQuote = endsWithClosingQuote(grapheme);
+        unitIsSingleKinsokuEnd = kinsokuEnd.has(grapheme);
+    }
+    function appendToUnit(grapheme, graphemeContainsCJK) {
+        unitParts.push(grapheme);
+        unitContainsCJK = unitContainsCJK || graphemeContainsCJK;
+        const graphemeEndsWithClosingQuote = endsWithClosingQuote(grapheme);
+        if (grapheme.length === 1 && leftStickyPunctuation.has(grapheme)) {
+            unitEndsWithClosingQuote = unitEndsWithClosingQuote || graphemeEndsWithClosingQuote;
+        }
+        else {
+            unitEndsWithClosingQuote = graphemeEndsWithClosingQuote;
+        }
+        unitIsSingleKinsokuEnd = false;
+    }
+    for (const gs of getSharedGraphemeSegmenter().segment(segText)) {
+        const grapheme = gs.segment;
+        const graphemeContainsCJK = isCJK(grapheme);
+        if (unitParts.length === 0) {
+            startUnit(grapheme, gs.index, graphemeContainsCJK);
+            continue;
+        }
+        if (unitIsSingleKinsokuEnd ||
+            kinsokuStart.has(grapheme) ||
+            leftStickyPunctuation.has(grapheme) ||
+            (engineProfile.carryCJKAfterClosingQuote &&
+                graphemeContainsCJK &&
+                unitEndsWithClosingQuote)) {
+            appendToUnit(grapheme, graphemeContainsCJK);
+            continue;
+        }
+        if (!unitContainsCJK && !graphemeContainsCJK) {
+            appendToUnit(grapheme, graphemeContainsCJK);
+            continue;
+        }
+        pushUnit();
+        startUnit(grapheme, gs.index, graphemeContainsCJK);
+    }
+    pushUnit();
+    return units;
+}
+function mergeKeepAllTextUnits(units) {
+    if (units.length <= 1)
+        return units;
+    const merged = [];
+    let currentTextParts = [units[0].text];
+    let currentStart = units[0].start;
+    let currentContainsCJK = isCJK(units[0].text);
+    let currentCanContinue = canContinueKeepAllTextRun(units[0].text);
+    function flushCurrent() {
+        merged.push({
+            text: currentTextParts.length === 1 ? currentTextParts[0] : currentTextParts.join(''),
+            start: currentStart,
+        });
+    }
+    for (let i = 1; i < units.length; i++) {
+        const next = units[i];
+        const nextContainsCJK = isCJK(next.text);
+        const nextCanContinue = canContinueKeepAllTextRun(next.text);
+        if (currentContainsCJK && currentCanContinue) {
+            currentTextParts.push(next.text);
+            currentContainsCJK = currentContainsCJK || nextContainsCJK;
+            currentCanContinue = nextCanContinue;
+            continue;
+        }
+        flushCurrent();
+        currentTextParts = [next.text];
+        currentStart = next.start;
+        currentContainsCJK = nextContainsCJK;
+        currentCanContinue = nextCanContinue;
+    }
+    flushCurrent();
+    return merged;
+}
+function countRenderedSpacingGraphemes(text, kind) {
+    if (kind === 'zero-width-break' ||
+        kind === 'soft-hyphen' ||
+        kind === 'hard-break') {
+        return 0;
+    }
+    if (kind === 'tab')
+        return 1;
+    let count = 0;
     const graphemeSegmenter = getSharedGraphemeSegmenter();
+    for (const _ of graphemeSegmenter.segment(text))
+        count++;
+    return count;
+}
+function addInternalLetterSpacing(width, graphemeCount, letterSpacing) {
+    return graphemeCount > 1 ? width + (graphemeCount - 1) * letterSpacing : width;
+}
+function measureAnalysis(analysis, font, includeSegments, wordBreak, letterSpacing) {
     const engineProfile = getEngineProfile();
     const { cache, emojiCorrection } = getFontMeasurementState(font, textMayContainEmoji(analysis.normalized));
-    const discretionaryHyphenWidth = getCorrectedSegmentWidth('-', getSegmentMetrics('-', cache), emojiCorrection);
+    const discretionaryHyphenWidth = getCorrectedSegmentWidth('-', getSegmentMetrics('-', cache), emojiCorrection) +
+        (letterSpacing === 0 ? 0 : letterSpacing);
     const spaceWidth = getCorrectedSegmentWidth(' ', getSegmentMetrics(' ', cache), emojiCorrection);
     const tabStopAdvance = spaceWidth * 8;
+    const hasLetterSpacing = letterSpacing !== 0;
     if (analysis.len === 0)
         return createEmptyPrepared(includeSegments);
     const widths = [];
     const lineEndFitAdvances = [];
     const lineEndPaintAdvances = [];
     const kinds = [];
-    let simpleLineWalkFastPath = analysis.chunks.length <= 1;
+    let simpleLineWalkFastPath = analysis.chunks.length <= 1 && !hasLetterSpacing;
     const segStarts = includeSegments ? [] : null;
-    const breakableWidths = [];
-    const breakablePrefixWidths = [];
+    const breakableFitAdvances = [];
+    const spacingGraphemeCounts = [];
     const segments = includeSegments ? [] : null;
     const preparedStartByAnalysisIndex = Array.from({ length: analysis.len });
-    const preparedEndByAnalysisIndex = Array.from({ length: analysis.len });
-    function pushMeasuredSegment(text, width, lineEndFitAdvance, lineEndPaintAdvance, kind, start, breakable, breakablePrefix) {
+    function pushMeasuredSegment(text, width, lineEndFitAdvance, lineEndPaintAdvance, kind, start, breakableFitAdvance, spacingGraphemeCount) {
         if (kind !== 'text' && kind !== 'space' && kind !== 'zero-width-break') {
             simpleLineWalkFastPath = false;
         }
@@ -106,10 +220,43 @@ function measureAnalysis(analysis, font, includeSegments) {
         lineEndPaintAdvances.push(lineEndPaintAdvance);
         kinds.push(kind);
         segStarts?.push(start);
-        breakableWidths.push(breakable);
-        breakablePrefixWidths.push(breakablePrefix);
+        breakableFitAdvances.push(breakableFitAdvance);
+        if (hasLetterSpacing)
+            spacingGraphemeCounts.push(spacingGraphemeCount);
         if (segments !== null)
             segments.push(text);
+    }
+    function pushMeasuredTextSegment(text, kind, start, wordLike, allowOverflowBreaks) {
+        const textMetrics = getSegmentMetrics(text, cache);
+        const spacingGraphemeCount = hasLetterSpacing
+            ? countRenderedSpacingGraphemes(text, kind)
+            : 0;
+        const width = addInternalLetterSpacing(getCorrectedSegmentWidth(text, textMetrics, emojiCorrection), spacingGraphemeCount, letterSpacing);
+        const baseLineEndFitAdvance = kind === 'space' || kind === 'preserved-space' || kind === 'zero-width-break'
+            ? 0
+            : width;
+        const lineEndFitAdvance = baseLineEndFitAdvance === 0
+            ? 0
+            : baseLineEndFitAdvance + (spacingGraphemeCount > 0 ? letterSpacing : 0);
+        const lineEndPaintAdvance = kind === 'space' || kind === 'zero-width-break'
+            ? 0
+            : width;
+        if (allowOverflowBreaks && wordLike && text.length > 1) {
+            let fitMode = 'sum-graphemes';
+            if (letterSpacing !== 0) {
+                fitMode = 'segment-prefixes';
+            }
+            else if (isNumericRunSegment(text)) {
+                fitMode = 'pair-context';
+            }
+            else if (engineProfile.preferPrefixWidthsForBreakableRuns) {
+                fitMode = 'segment-prefixes';
+            }
+            const fitAdvances = getSegmentBreakableFitAdvances(text, textMetrics, cache, emojiCorrection, fitMode);
+            pushMeasuredSegment(text, width, lineEndFitAdvance, lineEndPaintAdvance, kind, start, fitAdvances, spacingGraphemeCount);
+            return;
+        }
+        pushMeasuredSegment(text, width, lineEndFitAdvance, lineEndPaintAdvance, kind, start, null, spacingGraphemeCount);
     }
     for (let mi = 0; mi < analysis.len; mi++) {
         preparedStartByAnalysisIndex[mi] = widths.length;
@@ -118,74 +265,32 @@ function measureAnalysis(analysis, font, includeSegments) {
         const segKind = analysis.kinds[mi];
         const segStart = analysis.starts[mi];
         if (segKind === 'soft-hyphen') {
-            pushMeasuredSegment(segText, 0, discretionaryHyphenWidth, discretionaryHyphenWidth, segKind, segStart, null, null);
-            preparedEndByAnalysisIndex[mi] = widths.length;
+            pushMeasuredSegment(segText, 0, discretionaryHyphenWidth, discretionaryHyphenWidth, segKind, segStart, null, 0);
             continue;
         }
         if (segKind === 'hard-break') {
-            pushMeasuredSegment(segText, 0, 0, 0, segKind, segStart, null, null);
-            preparedEndByAnalysisIndex[mi] = widths.length;
+            pushMeasuredSegment(segText, 0, 0, 0, segKind, segStart, null, 0);
             continue;
         }
         if (segKind === 'tab') {
-            pushMeasuredSegment(segText, 0, 0, 0, segKind, segStart, null, null);
-            preparedEndByAnalysisIndex[mi] = widths.length;
+            pushMeasuredSegment(segText, 0, 0, 0, segKind, segStart, null, hasLetterSpacing ? countRenderedSpacingGraphemes(segText, segKind) : 0);
             continue;
         }
         const segMetrics = getSegmentMetrics(segText, cache);
         if (segKind === 'text' && segMetrics.containsCJK) {
-            let unitText = '';
-            let unitStart = 0;
-            for (const gs of graphemeSegmenter.segment(segText)) {
-                const grapheme = gs.segment;
-                if (unitText.length === 0) {
-                    unitText = grapheme;
-                    unitStart = gs.index;
-                    continue;
-                }
-                if (kinsokuEnd.has(unitText) ||
-                    kinsokuStart.has(grapheme) ||
-                    leftStickyPunctuation.has(grapheme) ||
-                    (engineProfile.carryCJKAfterClosingQuote &&
-                        isCJK(grapheme) &&
-                        endsWithClosingQuote(unitText))) {
-                    unitText += grapheme;
-                    continue;
-                }
-                const unitMetrics = getSegmentMetrics(unitText, cache);
-                const w = getCorrectedSegmentWidth(unitText, unitMetrics, emojiCorrection);
-                pushMeasuredSegment(unitText, w, w, w, 'text', segStart + unitStart, null, null);
-                unitText = grapheme;
-                unitStart = gs.index;
+            const baseUnits = buildBaseCjkUnits(segText, engineProfile);
+            const measuredUnits = wordBreak === 'keep-all'
+                ? mergeKeepAllTextUnits(baseUnits)
+                : baseUnits;
+            for (let i = 0; i < measuredUnits.length; i++) {
+                const unit = measuredUnits[i];
+                pushMeasuredTextSegment(unit.text, 'text', segStart + unit.start, segWordLike, wordBreak === 'keep-all' || !isCJK(unit.text));
             }
-            if (unitText.length > 0) {
-                const unitMetrics = getSegmentMetrics(unitText, cache);
-                const w = getCorrectedSegmentWidth(unitText, unitMetrics, emojiCorrection);
-                pushMeasuredSegment(unitText, w, w, w, 'text', segStart + unitStart, null, null);
-            }
-            preparedEndByAnalysisIndex[mi] = widths.length;
             continue;
         }
-        const w = getCorrectedSegmentWidth(segText, segMetrics, emojiCorrection);
-        const lineEndFitAdvance = segKind === 'space' || segKind === 'preserved-space' || segKind === 'zero-width-break'
-            ? 0
-            : w;
-        const lineEndPaintAdvance = segKind === 'space' || segKind === 'zero-width-break'
-            ? 0
-            : w;
-        if (segWordLike && segText.length > 1) {
-            const graphemeWidths = getSegmentGraphemeWidths(segText, segMetrics, cache, emojiCorrection);
-            const graphemePrefixWidths = engineProfile.preferPrefixWidthsForBreakableRuns
-                ? getSegmentGraphemePrefixWidths(segText, segMetrics, cache, emojiCorrection)
-                : null;
-            pushMeasuredSegment(segText, w, lineEndFitAdvance, lineEndPaintAdvance, segKind, segStart, graphemeWidths, graphemePrefixWidths);
-        }
-        else {
-            pushMeasuredSegment(segText, w, lineEndFitAdvance, lineEndPaintAdvance, segKind, segStart, null, null);
-        }
-        preparedEndByAnalysisIndex[mi] = widths.length;
+        pushMeasuredTextSegment(segText, segKind, segStart, segWordLike, true);
     }
-    const chunks = mapAnalysisChunksToPreparedChunks(analysis.chunks, preparedStartByAnalysisIndex, preparedEndByAnalysisIndex);
+    const chunks = mapAnalysisChunksToPreparedChunks(analysis.chunks, preparedStartByAnalysisIndex, widths.length);
     const segLevels = segStarts === null ? null : computeSegmentLevels(analysis.normalized, segStarts);
     if (segments !== null) {
         return {
@@ -195,8 +300,9 @@ function measureAnalysis(analysis, font, includeSegments) {
             kinds,
             simpleLineWalkFastPath,
             segLevels,
-            breakableWidths,
-            breakablePrefixWidths,
+            breakableFitAdvances,
+            letterSpacing,
+            spacingGraphemeCounts,
             discretionaryHyphenWidth,
             tabStopAdvance,
             chunks,
@@ -210,26 +316,27 @@ function measureAnalysis(analysis, font, includeSegments) {
         kinds,
         simpleLineWalkFastPath,
         segLevels,
-        breakableWidths,
-        breakablePrefixWidths,
+        breakableFitAdvances,
+        letterSpacing,
+        spacingGraphemeCounts,
         discretionaryHyphenWidth,
         tabStopAdvance,
         chunks,
     };
 }
-function mapAnalysisChunksToPreparedChunks(chunks, preparedStartByAnalysisIndex, preparedEndByAnalysisIndex) {
+function mapAnalysisChunksToPreparedChunks(chunks, preparedStartByAnalysisIndex, preparedEndSegmentIndex) {
     const preparedChunks = [];
     for (let i = 0; i < chunks.length; i++) {
         const chunk = chunks[i];
         const startSegmentIndex = chunk.startSegmentIndex < preparedStartByAnalysisIndex.length
             ? preparedStartByAnalysisIndex[chunk.startSegmentIndex]
-            : preparedEndByAnalysisIndex[preparedEndByAnalysisIndex.length - 1] ?? 0;
+            : preparedEndSegmentIndex;
         const endSegmentIndex = chunk.endSegmentIndex < preparedStartByAnalysisIndex.length
             ? preparedStartByAnalysisIndex[chunk.endSegmentIndex]
-            : preparedEndByAnalysisIndex[preparedEndByAnalysisIndex.length - 1] ?? 0;
+            : preparedEndSegmentIndex;
         const consumedEndSegmentIndex = chunk.consumedEndSegmentIndex < preparedStartByAnalysisIndex.length
             ? preparedStartByAnalysisIndex[chunk.consumedEndSegmentIndex]
-            : preparedEndByAnalysisIndex[preparedEndByAnalysisIndex.length - 1] ?? 0;
+            : preparedEndSegmentIndex;
         preparedChunks.push({
             startSegmentIndex,
             endSegmentIndex,
@@ -239,30 +346,10 @@ function mapAnalysisChunksToPreparedChunks(chunks, preparedStartByAnalysisIndex,
     return preparedChunks;
 }
 function prepareInternal(text, font, includeSegments, options) {
-    const analysis = analyzeText(text, getEngineProfile(), options?.whiteSpace);
-    return measureAnalysis(analysis, font, includeSegments);
-}
-// Diagnostic-only helper used by the browser benchmark harness to separate the
-// text-analysis and measurement phases without duplicating the prepare logic.
-export function profilePrepare(text, font, options) {
-    const t0 = performance.now();
-    const analysis = analyzeText(text, getEngineProfile(), options?.whiteSpace);
-    const t1 = performance.now();
-    const prepared = measureAnalysis(analysis, font, false);
-    const t2 = performance.now();
-    let breakableSegments = 0;
-    for (const widths of prepared.breakableWidths) {
-        if (widths !== null)
-            breakableSegments++;
-    }
-    return {
-        analysisMs: t1 - t0,
-        measureMs: t2 - t1,
-        totalMs: t2 - t0,
-        analysisSegments: analysis.len,
-        preparedSegments: prepared.widths.length,
-        breakableSegments,
-    };
+    const wordBreak = options?.wordBreak ?? 'normal';
+    const letterSpacing = options?.letterSpacing ?? 0;
+    const analysis = analyzeText(text, getEngineProfile(), options?.whiteSpace, wordBreak);
+    return measureAnalysis(analysis, font, includeSegments, wordBreak, letterSpacing);
 }
 // Prepare text for layout. Segments the text, measures each segment via canvas,
 // and stores the widths for fast relayout at any width. Call once per text block
@@ -305,57 +392,9 @@ export function layout(prepared, maxWidth, lineHeight) {
     const lineCount = countPreparedLines(getInternalPrepared(prepared), maxWidth);
     return { lineCount, height: lineCount * lineHeight };
 }
-function getSegmentGraphemes(segmentIndex, segments, cache) {
-    let graphemes = cache.get(segmentIndex);
-    if (graphemes !== undefined)
-        return graphemes;
-    graphemes = [];
-    const graphemeSegmenter = getSharedGraphemeSegmenter();
-    for (const gs of graphemeSegmenter.segment(segments[segmentIndex])) {
-        graphemes.push(gs.segment);
-    }
-    cache.set(segmentIndex, graphemes);
-    return graphemes;
-}
-function getLineTextCache(prepared) {
-    let cache = sharedLineTextCaches.get(prepared);
-    if (cache !== undefined)
-        return cache;
-    cache = new Map();
-    sharedLineTextCaches.set(prepared, cache);
-    return cache;
-}
-function lineHasDiscretionaryHyphen(kinds, startSegmentIndex, startGraphemeIndex, endSegmentIndex) {
-    return (endSegmentIndex > 0 &&
-        kinds[endSegmentIndex - 1] === 'soft-hyphen' &&
-        !(startSegmentIndex === endSegmentIndex && startGraphemeIndex > 0));
-}
-function buildLineTextFromRange(segments, kinds, cache, startSegmentIndex, startGraphemeIndex, endSegmentIndex, endGraphemeIndex) {
-    let text = '';
-    const endsWithDiscretionaryHyphen = lineHasDiscretionaryHyphen(kinds, startSegmentIndex, startGraphemeIndex, endSegmentIndex);
-    for (let i = startSegmentIndex; i < endSegmentIndex; i++) {
-        if (kinds[i] === 'soft-hyphen' || kinds[i] === 'hard-break')
-            continue;
-        if (i === startSegmentIndex && startGraphemeIndex > 0) {
-            text += getSegmentGraphemes(i, segments, cache).slice(startGraphemeIndex).join('');
-        }
-        else {
-            text += segments[i];
-        }
-    }
-    if (endGraphemeIndex > 0) {
-        if (endsWithDiscretionaryHyphen)
-            text += '-';
-        text += getSegmentGraphemes(endSegmentIndex, segments, cache).slice(startSegmentIndex === endSegmentIndex ? startGraphemeIndex : 0, endGraphemeIndex).join('');
-    }
-    else if (endsWithDiscretionaryHyphen) {
-        text += '-';
-    }
-    return text;
-}
 function createLayoutLine(prepared, cache, width, startSegmentIndex, startGraphemeIndex, endSegmentIndex, endGraphemeIndex) {
     return {
-        text: buildLineTextFromRange(prepared.segments, prepared.kinds, cache, startSegmentIndex, startGraphemeIndex, endSegmentIndex, endGraphemeIndex),
+        text: buildLineTextFromRange(prepared, cache, startSegmentIndex, startGraphemeIndex, endSegmentIndex, endGraphemeIndex),
         width,
         start: {
             segmentIndex: startSegmentIndex,
@@ -367,45 +406,72 @@ function createLayoutLine(prepared, cache, width, startSegmentIndex, startGraphe
         },
     };
 }
-function materializeLayoutLine(prepared, cache, line) {
-    return createLayoutLine(prepared, cache, line.width, line.startSegmentIndex, line.startGraphemeIndex, line.endSegmentIndex, line.endGraphemeIndex);
-}
-function toLayoutLineRange(line) {
+function createLayoutLineRange(width, startSegmentIndex, startGraphemeIndex, endSegmentIndex, endGraphemeIndex) {
     return {
-        width: line.width,
+        width,
         start: {
-            segmentIndex: line.startSegmentIndex,
-            graphemeIndex: line.startGraphemeIndex,
+            segmentIndex: startSegmentIndex,
+            graphemeIndex: startGraphemeIndex,
         },
         end: {
-            segmentIndex: line.endSegmentIndex,
-            graphemeIndex: line.endGraphemeIndex,
+            segmentIndex: endSegmentIndex,
+            graphemeIndex: endGraphemeIndex,
         },
     };
 }
-function stepLineRange(prepared, start, maxWidth) {
-    const line = stepPreparedLineRange(prepared, start, maxWidth);
-    if (line === null)
-        return null;
-    return toLayoutLineRange(line);
-}
-function materializeLine(prepared, line) {
+export function materializeLineRange(prepared, line) {
     return createLayoutLine(prepared, getLineTextCache(prepared), line.width, line.start.segmentIndex, line.start.graphemeIndex, line.end.segmentIndex, line.end.graphemeIndex);
 }
-// Batch low-level line geometry pass. This is the non-materializing counterpart
-// to layoutWithLines(), useful for shrinkwrap and other aggregate geometry work.
+// Batch low-level line-range pass. This is the non-materializing counterpart
+// to layoutWithLines(), useful for shrinkwrap and other aggregate stats work.
 export function walkLineRanges(prepared, maxWidth, onLine) {
     if (prepared.widths.length === 0)
         return 0;
-    return walkPreparedLines(getInternalPrepared(prepared), maxWidth, line => {
-        onLine(toLayoutLineRange(line));
+    return walkPreparedLinesRaw(getInternalPrepared(prepared), maxWidth, (width, startSegmentIndex, startGraphemeIndex, endSegmentIndex, endGraphemeIndex) => {
+        onLine(createLayoutLineRange(width, startSegmentIndex, startGraphemeIndex, endSegmentIndex, endGraphemeIndex));
     });
 }
+export function measureLineStats(prepared, maxWidth) {
+    return measurePreparedLineGeometry(getInternalPrepared(prepared), maxWidth);
+}
+// Intrinsic-width helper for rich/userland layout work. This asks "how wide is
+// the prepared text when container width is not the thing forcing wraps?".
+// Explicit hard breaks still count, so this returns the widest forced line.
+export function measureNaturalWidth(prepared) {
+    let maxWidth = 0;
+    walkPreparedLinesRaw(getInternalPrepared(prepared), Number.POSITIVE_INFINITY, width => {
+        if (width > maxWidth)
+            maxWidth = width;
+    });
+    return maxWidth;
+}
 export function layoutNextLine(prepared, start, maxWidth) {
-    const line = stepLineRange(prepared, start, maxWidth);
-    if (line === null)
+    const internal = getInternalPrepared(prepared);
+    const normalizedStart = normalizeLineStart(internal, start);
+    if (normalizedStart === null)
         return null;
-    return materializeLine(prepared, line);
+    const end = {
+        segmentIndex: normalizedStart.segmentIndex,
+        graphemeIndex: normalizedStart.graphemeIndex,
+    };
+    const width = stepPreparedLineGeometry(internal, end, maxWidth);
+    if (width === null)
+        return null;
+    return createLayoutLine(prepared, getLineTextCache(prepared), width, normalizedStart.segmentIndex, normalizedStart.graphemeIndex, end.segmentIndex, end.graphemeIndex);
+}
+export function layoutNextLineRange(prepared, start, maxWidth) {
+    const internal = getInternalPrepared(prepared);
+    const normalizedStart = normalizeLineStart(internal, start);
+    if (normalizedStart === null)
+        return null;
+    const end = {
+        segmentIndex: normalizedStart.segmentIndex,
+        graphemeIndex: normalizedStart.graphemeIndex,
+    };
+    const width = stepPreparedLineGeometry(internal, end, maxWidth);
+    if (width === null)
+        return null;
+    return createLayoutLineRange(width, normalizedStart.segmentIndex, normalizedStart.graphemeIndex, end.segmentIndex, end.graphemeIndex);
 }
 // Rich layout API for callers that want the actual line contents and widths.
 // Caller still supplies lineHeight at layout time. Mirrors layout()'s break
@@ -416,15 +482,15 @@ export function layoutWithLines(prepared, maxWidth, lineHeight) {
     if (prepared.widths.length === 0)
         return { lineCount: 0, height: 0, lines };
     const graphemeCache = getLineTextCache(prepared);
-    const lineCount = walkPreparedLines(getInternalPrepared(prepared), maxWidth, line => {
-        lines.push(materializeLayoutLine(prepared, graphemeCache, line));
+    const lineCount = walkPreparedLinesRaw(getInternalPrepared(prepared), maxWidth, (width, startSegmentIndex, startGraphemeIndex, endSegmentIndex, endGraphemeIndex) => {
+        lines.push(createLayoutLine(prepared, graphemeCache, width, startSegmentIndex, startGraphemeIndex, endSegmentIndex, endGraphemeIndex));
     });
     return { lineCount, height: lineCount * lineHeight, lines };
 }
 export function clearCache() {
     clearAnalysisCaches();
     sharedGraphemeSegmenter = null;
-    sharedLineTextCaches = new WeakMap();
+    clearLineTextCaches();
     clearMeasurementCaches();
 }
 export function setLocale(locale) {

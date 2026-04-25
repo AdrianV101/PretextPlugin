@@ -1,13 +1,22 @@
 import { getEngineProfile } from './measurement.js';
-function canBreakAfter(kind) {
+function consumesAtLineStart(kind) {
+    return kind === 'space' || kind === 'zero-width-break' || kind === 'soft-hyphen';
+}
+function breaksAfter(kind) {
     return (kind === 'space' ||
         kind === 'preserved-space' ||
         kind === 'tab' ||
         kind === 'zero-width-break' ||
         kind === 'soft-hyphen');
 }
-function isSimpleCollapsibleSpace(kind) {
-    return kind === 'space';
+function normalizeLineStartSegmentIndex(prepared, segmentIndex, endSegmentIndex = prepared.widths.length) {
+    while (segmentIndex < endSegmentIndex) {
+        const kind = prepared.kinds[segmentIndex];
+        if (!consumesAtLineStart(kind))
+            break;
+        segmentIndex++;
+    }
+    return segmentIndex;
 }
 function getTabAdvance(lineWidth, tabStopAdvance) {
     if (tabStopAdvance <= 0)
@@ -17,20 +26,52 @@ function getTabAdvance(lineWidth, tabStopAdvance) {
         return tabStopAdvance;
     return tabStopAdvance - remainder;
 }
-function getBreakableAdvance(graphemeWidths, graphemePrefixWidths, graphemeIndex, preferPrefixWidths) {
-    if (!preferPrefixWidths || graphemePrefixWidths === null) {
-        return graphemeWidths[graphemeIndex];
-    }
-    return graphemePrefixWidths[graphemeIndex] - (graphemeIndex > 0 ? graphemePrefixWidths[graphemeIndex - 1] : 0);
+function getLeadingLetterSpacing(prepared, hasContent, segmentIndex) {
+    return (prepared.letterSpacing !== 0 &&
+        hasContent &&
+        prepared.spacingGraphemeCounts[segmentIndex] > 0)
+        ? prepared.letterSpacing
+        : 0;
 }
-function fitSoftHyphenBreak(graphemeWidths, initialWidth, maxWidth, lineFitEpsilon, discretionaryHyphenWidth, cumulativeWidths) {
+function getLineEndContribution(leadingSpacing, segmentContribution) {
+    return segmentContribution === 0 ? 0 : leadingSpacing + segmentContribution;
+}
+function getTabTrailingLetterSpacing(prepared, segmentIndex) {
+    return (prepared.letterSpacing !== 0 &&
+        prepared.spacingGraphemeCounts[segmentIndex] > 0)
+        ? prepared.letterSpacing
+        : 0;
+}
+function getWholeSegmentFitContribution(prepared, kind, segmentIndex, leadingSpacing, segmentWidth) {
+    const segmentContribution = kind === 'tab'
+        ? segmentWidth + getTabTrailingLetterSpacing(prepared, segmentIndex)
+        : prepared.lineEndFitAdvances[segmentIndex];
+    return getLineEndContribution(leadingSpacing, segmentContribution);
+}
+function getBreakOpportunityFitContribution(prepared, kind, segmentIndex, leadingSpacing) {
+    const segmentContribution = kind === 'tab' ? 0 : prepared.lineEndFitAdvances[segmentIndex];
+    return getLineEndContribution(leadingSpacing, segmentContribution);
+}
+function getLineEndPaintContribution(prepared, kind, segmentIndex, leadingSpacing, segmentWidth) {
+    const segmentContribution = kind === 'tab' ? segmentWidth : prepared.lineEndPaintAdvances[segmentIndex];
+    return getLineEndContribution(leadingSpacing, segmentContribution);
+}
+function getBreakableGraphemeAdvance(prepared, hasContent, baseAdvance) {
+    return prepared.letterSpacing !== 0 && hasContent
+        ? baseAdvance + prepared.letterSpacing
+        : baseAdvance;
+}
+function getBreakableCandidateFitWidth(prepared, candidatePaintWidth) {
+    return prepared.letterSpacing === 0
+        ? candidatePaintWidth
+        : candidatePaintWidth + prepared.letterSpacing;
+}
+function fitSoftHyphenBreak(graphemeFitAdvances, initialWidth, maxWidth, lineFitEpsilon, discretionaryHyphenWidth, letterSpacing) {
     let fitCount = 0;
     let fittedWidth = initialWidth;
-    while (fitCount < graphemeWidths.length) {
-        const nextWidth = cumulativeWidths
-            ? initialWidth + graphemeWidths[fitCount]
-            : fittedWidth + graphemeWidths[fitCount];
-        const nextLineWidth = fitCount + 1 < graphemeWidths.length
+    while (fitCount < graphemeFitAdvances.length) {
+        const nextWidth = fittedWidth + graphemeFitAdvances[fitCount] + letterSpacing;
+        const nextLineWidth = fitCount + 1 < graphemeFitAdvances.length
             ? nextWidth + discretionaryHyphenWidth
             : nextWidth;
         if (nextLineWidth > maxWidth + lineFitEpsilon)
@@ -41,108 +82,81 @@ function fitSoftHyphenBreak(graphemeWidths, initialWidth, maxWidth, lineFitEpsil
     return { fitCount, fittedWidth };
 }
 function findChunkIndexForStart(prepared, segmentIndex) {
-    for (let i = 0; i < prepared.chunks.length; i++) {
-        const chunk = prepared.chunks[i];
-        if (segmentIndex < chunk.consumedEndSegmentIndex)
-            return i;
+    let lo = 0;
+    let hi = prepared.chunks.length;
+    while (lo < hi) {
+        const mid = Math.floor((lo + hi) / 2);
+        if (segmentIndex < prepared.chunks[mid].consumedEndSegmentIndex) {
+            hi = mid;
+        }
+        else {
+            lo = mid + 1;
+        }
     }
-    return -1;
+    return lo < prepared.chunks.length ? lo : -1;
 }
-export function normalizeLineStart(prepared, start) {
-    let segmentIndex = start.segmentIndex;
-    const graphemeIndex = start.graphemeIndex;
-    if (segmentIndex >= prepared.widths.length)
-        return null;
-    if (graphemeIndex > 0)
-        return start;
-    const chunkIndex = findChunkIndexForStart(prepared, segmentIndex);
-    if (chunkIndex < 0)
-        return null;
+function normalizeLineStartInChunk(prepared, chunkIndex, cursor) {
+    let segmentIndex = cursor.segmentIndex;
+    if (cursor.graphemeIndex > 0)
+        return chunkIndex;
     const chunk = prepared.chunks[chunkIndex];
     if (chunk.startSegmentIndex === chunk.endSegmentIndex && segmentIndex === chunk.startSegmentIndex) {
-        return { segmentIndex, graphemeIndex: 0 };
+        cursor.segmentIndex = segmentIndex;
+        cursor.graphemeIndex = 0;
+        return chunkIndex;
     }
     if (segmentIndex < chunk.startSegmentIndex)
         segmentIndex = chunk.startSegmentIndex;
-    while (segmentIndex < chunk.endSegmentIndex) {
-        const kind = prepared.kinds[segmentIndex];
-        if (kind !== 'space' && kind !== 'zero-width-break' && kind !== 'soft-hyphen') {
-            return { segmentIndex, graphemeIndex: 0 };
-        }
-        segmentIndex++;
+    segmentIndex = normalizeLineStartSegmentIndex(prepared, segmentIndex, chunk.endSegmentIndex);
+    if (segmentIndex < chunk.endSegmentIndex) {
+        cursor.segmentIndex = segmentIndex;
+        cursor.graphemeIndex = 0;
+        return chunkIndex;
     }
     if (chunk.consumedEndSegmentIndex >= prepared.widths.length)
-        return null;
-    return { segmentIndex: chunk.consumedEndSegmentIndex, graphemeIndex: 0 };
+        return -1;
+    cursor.segmentIndex = chunk.consumedEndSegmentIndex;
+    cursor.graphemeIndex = 0;
+    return chunkIndex + 1;
+}
+function normalizeLineStartChunkIndex(prepared, cursor) {
+    if (cursor.segmentIndex >= prepared.widths.length)
+        return -1;
+    const chunkIndex = findChunkIndexForStart(prepared, cursor.segmentIndex);
+    if (chunkIndex < 0)
+        return -1;
+    return normalizeLineStartInChunk(prepared, chunkIndex, cursor);
+}
+function normalizeLineStartChunkIndexFromHint(prepared, chunkIndex, cursor) {
+    if (cursor.segmentIndex >= prepared.widths.length)
+        return -1;
+    let nextChunkIndex = chunkIndex;
+    while (nextChunkIndex < prepared.chunks.length &&
+        cursor.segmentIndex >= prepared.chunks[nextChunkIndex].consumedEndSegmentIndex) {
+        nextChunkIndex++;
+    }
+    if (nextChunkIndex >= prepared.chunks.length)
+        return -1;
+    return normalizeLineStartInChunk(prepared, nextChunkIndex, cursor);
+}
+export function normalizeLineStart(prepared, start) {
+    const cursor = {
+        segmentIndex: start.segmentIndex,
+        graphemeIndex: start.graphemeIndex,
+    };
+    const chunkIndex = normalizeLineStartChunkIndex(prepared, cursor);
+    return chunkIndex < 0 ? null : cursor;
 }
 export function countPreparedLines(prepared, maxWidth) {
-    if (prepared.simpleLineWalkFastPath) {
-        return countPreparedLinesSimple(prepared, maxWidth);
-    }
-    return walkPreparedLines(prepared, maxWidth);
-}
-function countPreparedLinesSimple(prepared, maxWidth) {
-    const { widths, kinds, breakableWidths, breakablePrefixWidths } = prepared;
-    if (widths.length === 0)
-        return 0;
-    const engineProfile = getEngineProfile();
-    const lineFitEpsilon = engineProfile.lineFitEpsilon;
-    let lineCount = 0;
-    let lineW = 0;
-    let hasContent = false;
-    function placeOnFreshLine(segmentIndex) {
-        const w = widths[segmentIndex];
-        if (w > maxWidth && breakableWidths[segmentIndex] !== null) {
-            const gWidths = breakableWidths[segmentIndex];
-            const gPrefixWidths = breakablePrefixWidths[segmentIndex] ?? null;
-            lineW = 0;
-            for (let g = 0; g < gWidths.length; g++) {
-                const gw = getBreakableAdvance(gWidths, gPrefixWidths, g, engineProfile.preferPrefixWidthsForBreakableRuns);
-                if (lineW > 0 && lineW + gw > maxWidth + lineFitEpsilon) {
-                    lineCount++;
-                    lineW = gw;
-                }
-                else {
-                    if (lineW === 0)
-                        lineCount++;
-                    lineW += gw;
-                }
-            }
-        }
-        else {
-            lineW = w;
-            lineCount++;
-        }
-        hasContent = true;
-    }
-    for (let i = 0; i < widths.length; i++) {
-        const w = widths[i];
-        const kind = kinds[i];
-        if (!hasContent) {
-            placeOnFreshLine(i);
-            continue;
-        }
-        const newW = lineW + w;
-        if (newW > maxWidth + lineFitEpsilon) {
-            if (isSimpleCollapsibleSpace(kind))
-                continue;
-            lineW = 0;
-            hasContent = false;
-            placeOnFreshLine(i);
-            continue;
-        }
-        lineW = newW;
-    }
-    if (!hasContent)
-        return lineCount + 1;
-    return lineCount;
+    return walkPreparedLinesRaw(prepared, maxWidth);
 }
 function walkPreparedLinesSimple(prepared, maxWidth, onLine) {
-    const { widths, kinds, breakableWidths, breakablePrefixWidths } = prepared;
+    const { widths, kinds, breakableFitAdvances } = prepared;
     if (widths.length === 0)
         return 0;
     const engineProfile = getEngineProfile();
     const lineFitEpsilon = engineProfile.lineFitEpsilon;
+    const fitLimit = maxWidth + lineFitEpsilon;
     let lineCount = 0;
     let lineW = 0;
     let hasContent = false;
@@ -158,13 +172,7 @@ function walkPreparedLinesSimple(prepared, maxWidth, onLine) {
     }
     function emitCurrentLine(endSegmentIndex = lineEndSegmentIndex, endGraphemeIndex = lineEndGraphemeIndex, width = lineW) {
         lineCount++;
-        onLine?.({
-            startSegmentIndex: lineStartSegmentIndex,
-            startGraphemeIndex: lineStartGraphemeIndex,
-            endSegmentIndex,
-            endGraphemeIndex,
-            width,
-        });
+        onLine?.(width, lineStartSegmentIndex, lineStartGraphemeIndex, endSegmentIndex, endGraphemeIndex);
         lineW = 0;
         hasContent = false;
         clearPendingBreak();
@@ -194,25 +202,14 @@ function walkPreparedLinesSimple(prepared, maxWidth, onLine) {
         lineEndSegmentIndex = segmentIndex + 1;
         lineEndGraphemeIndex = 0;
     }
-    function updatePendingBreak(segmentIndex, segmentWidth) {
-        if (!canBreakAfter(kinds[segmentIndex]))
-            return;
-        pendingBreakSegmentIndex = segmentIndex + 1;
-        pendingBreakPaintWidth = lineW - segmentWidth;
-    }
-    function appendBreakableSegment(segmentIndex) {
-        appendBreakableSegmentFrom(segmentIndex, 0);
-    }
     function appendBreakableSegmentFrom(segmentIndex, startGraphemeIndex) {
-        const gWidths = breakableWidths[segmentIndex];
-        const gPrefixWidths = breakablePrefixWidths[segmentIndex] ?? null;
-        for (let g = startGraphemeIndex; g < gWidths.length; g++) {
-            const gw = getBreakableAdvance(gWidths, gPrefixWidths, g, engineProfile.preferPrefixWidthsForBreakableRuns);
+        const fitAdvances = breakableFitAdvances[segmentIndex];
+        for (let g = startGraphemeIndex; g < fitAdvances.length; g++) {
+            const gw = fitAdvances[g];
             if (!hasContent) {
                 startLineAtGrapheme(segmentIndex, g, gw);
-                continue;
             }
-            if (lineW + gw > maxWidth + lineFitEpsilon) {
+            else if (lineW + gw > fitLimit) {
                 emitCurrentLine();
                 startLineAtGrapheme(segmentIndex, g, gw);
             }
@@ -222,41 +219,55 @@ function walkPreparedLinesSimple(prepared, maxWidth, onLine) {
                 lineEndGraphemeIndex = g + 1;
             }
         }
-        if (hasContent && lineEndSegmentIndex === segmentIndex && lineEndGraphemeIndex === gWidths.length) {
+        if (hasContent && lineEndSegmentIndex === segmentIndex && lineEndGraphemeIndex === fitAdvances.length) {
             lineEndSegmentIndex = segmentIndex + 1;
             lineEndGraphemeIndex = 0;
         }
     }
     let i = 0;
     while (i < widths.length) {
+        if (!hasContent) {
+            i = normalizeLineStartSegmentIndex(prepared, i);
+            if (i >= widths.length)
+                break;
+        }
         const w = widths[i];
         const kind = kinds[i];
+        const breakAfter = breaksAfter(kind);
         if (!hasContent) {
-            if (w > maxWidth && breakableWidths[i] !== null) {
-                appendBreakableSegment(i);
+            if (w > fitLimit && breakableFitAdvances[i] !== null) {
+                appendBreakableSegmentFrom(i, 0);
             }
             else {
                 startLineAtSegment(i, w);
             }
-            updatePendingBreak(i, w);
+            if (breakAfter) {
+                pendingBreakSegmentIndex = i + 1;
+                pendingBreakPaintWidth = lineW - w;
+            }
             i++;
             continue;
         }
         const newW = lineW + w;
-        if (newW > maxWidth + lineFitEpsilon) {
-            if (canBreakAfter(kind)) {
+        if (newW > fitLimit) {
+            if (breakAfter) {
                 appendWholeSegment(i, w);
                 emitCurrentLine(i + 1, 0, lineW - w);
                 i++;
                 continue;
             }
             if (pendingBreakSegmentIndex >= 0) {
+                if (lineEndSegmentIndex > pendingBreakSegmentIndex ||
+                    (lineEndSegmentIndex === pendingBreakSegmentIndex && lineEndGraphemeIndex > 0)) {
+                    emitCurrentLine();
+                    continue;
+                }
                 emitCurrentLine(pendingBreakSegmentIndex, 0, pendingBreakPaintWidth);
                 continue;
             }
-            if (w > maxWidth && breakableWidths[i] !== null) {
+            if (w > fitLimit && breakableFitAdvances[i] !== null) {
                 emitCurrentLine();
-                appendBreakableSegment(i);
+                appendBreakableSegmentFrom(i, 0);
                 i++;
                 continue;
             }
@@ -264,22 +275,26 @@ function walkPreparedLinesSimple(prepared, maxWidth, onLine) {
             continue;
         }
         appendWholeSegment(i, w);
-        updatePendingBreak(i, w);
+        if (breakAfter) {
+            pendingBreakSegmentIndex = i + 1;
+            pendingBreakPaintWidth = lineW - w;
+        }
         i++;
     }
     if (hasContent)
         emitCurrentLine();
     return lineCount;
 }
-export function walkPreparedLines(prepared, maxWidth, onLine) {
+export function walkPreparedLinesRaw(prepared, maxWidth, onLine) {
     if (prepared.simpleLineWalkFastPath) {
         return walkPreparedLinesSimple(prepared, maxWidth, onLine);
     }
-    const { widths, lineEndFitAdvances, lineEndPaintAdvances, kinds, breakableWidths, breakablePrefixWidths, discretionaryHyphenWidth, tabStopAdvance, chunks, } = prepared;
+    const { widths, kinds, breakableFitAdvances, discretionaryHyphenWidth, chunks, } = prepared;
     if (widths.length === 0 || chunks.length === 0)
         return 0;
     const engineProfile = getEngineProfile();
     const lineFitEpsilon = engineProfile.lineFitEpsilon;
+    const fitLimit = maxWidth + lineFitEpsilon;
     let lineCount = 0;
     let lineW = 0;
     let hasContent = false;
@@ -299,13 +314,7 @@ export function walkPreparedLines(prepared, maxWidth, onLine) {
     }
     function emitCurrentLine(endSegmentIndex = lineEndSegmentIndex, endGraphemeIndex = lineEndGraphemeIndex, width = lineW) {
         lineCount++;
-        onLine?.({
-            startSegmentIndex: lineStartSegmentIndex,
-            startGraphemeIndex: lineStartGraphemeIndex,
-            endSegmentIndex,
-            endGraphemeIndex,
-            width,
-        });
+        onLine?.(width, lineStartSegmentIndex, lineStartGraphemeIndex, endSegmentIndex, endGraphemeIndex);
         lineW = 0;
         hasContent = false;
         clearPendingBreak();
@@ -326,48 +335,47 @@ export function walkPreparedLines(prepared, maxWidth, onLine) {
         lineEndGraphemeIndex = graphemeIndex + 1;
         lineW = width;
     }
-    function appendWholeSegment(segmentIndex, width) {
+    function appendWholeSegment(segmentIndex, advance) {
         if (!hasContent) {
-            startLineAtSegment(segmentIndex, width);
+            startLineAtSegment(segmentIndex, advance);
             return;
         }
-        lineW += width;
+        lineW += advance;
         lineEndSegmentIndex = segmentIndex + 1;
         lineEndGraphemeIndex = 0;
     }
-    function updatePendingBreakForWholeSegment(segmentIndex, segmentWidth) {
-        if (!canBreakAfter(kinds[segmentIndex]))
+    function updatePendingBreakForWholeSegment(kind, breakAfter, segmentIndex, segmentWidth, leadingSpacing, advance) {
+        if (!breakAfter)
             return;
-        const fitAdvance = kinds[segmentIndex] === 'tab' ? 0 : lineEndFitAdvances[segmentIndex];
-        const paintAdvance = kinds[segmentIndex] === 'tab' ? segmentWidth : lineEndPaintAdvances[segmentIndex];
+        const fitAdvance = getBreakOpportunityFitContribution(prepared, kind, segmentIndex, leadingSpacing);
+        const paintAdvance = getLineEndPaintContribution(prepared, kind, segmentIndex, leadingSpacing, segmentWidth);
         pendingBreakSegmentIndex = segmentIndex + 1;
-        pendingBreakFitWidth = lineW - segmentWidth + fitAdvance;
-        pendingBreakPaintWidth = lineW - segmentWidth + paintAdvance;
-        pendingBreakKind = kinds[segmentIndex];
-    }
-    function appendBreakableSegment(segmentIndex) {
-        appendBreakableSegmentFrom(segmentIndex, 0);
+        pendingBreakFitWidth = lineW - advance + fitAdvance;
+        pendingBreakPaintWidth = lineW - advance + paintAdvance;
+        pendingBreakKind = kind;
     }
     function appendBreakableSegmentFrom(segmentIndex, startGraphemeIndex) {
-        const gWidths = breakableWidths[segmentIndex];
-        const gPrefixWidths = breakablePrefixWidths[segmentIndex] ?? null;
-        for (let g = startGraphemeIndex; g < gWidths.length; g++) {
-            const gw = getBreakableAdvance(gWidths, gPrefixWidths, g, engineProfile.preferPrefixWidthsForBreakableRuns);
+        const fitAdvances = breakableFitAdvances[segmentIndex];
+        for (let g = startGraphemeIndex; g < fitAdvances.length; g++) {
+            const baseGw = fitAdvances[g];
             if (!hasContent) {
-                startLineAtGrapheme(segmentIndex, g, gw);
-                continue;
-            }
-            if (lineW + gw > maxWidth + lineFitEpsilon) {
-                emitCurrentLine();
-                startLineAtGrapheme(segmentIndex, g, gw);
+                startLineAtGrapheme(segmentIndex, g, baseGw);
             }
             else {
-                lineW += gw;
-                lineEndSegmentIndex = segmentIndex;
-                lineEndGraphemeIndex = g + 1;
+                const gw = getBreakableGraphemeAdvance(prepared, true, baseGw);
+                const candidatePaintWidth = lineW + gw;
+                if (getBreakableCandidateFitWidth(prepared, candidatePaintWidth) > fitLimit) {
+                    emitCurrentLine();
+                    startLineAtGrapheme(segmentIndex, g, baseGw);
+                }
+                else {
+                    lineW = candidatePaintWidth;
+                    lineEndSegmentIndex = segmentIndex;
+                    lineEndGraphemeIndex = g + 1;
+                }
             }
         }
-        if (hasContent && lineEndSegmentIndex === segmentIndex && lineEndGraphemeIndex === gWidths.length) {
+        if (hasContent && lineEndSegmentIndex === segmentIndex && lineEndGraphemeIndex === fitAdvances.length) {
             lineEndSegmentIndex = segmentIndex + 1;
             lineEndGraphemeIndex = 0;
         }
@@ -375,21 +383,17 @@ export function walkPreparedLines(prepared, maxWidth, onLine) {
     function continueSoftHyphenBreakableSegment(segmentIndex) {
         if (pendingBreakKind !== 'soft-hyphen')
             return false;
-        const gWidths = breakableWidths[segmentIndex];
-        if (gWidths === null)
+        const fitWidths = breakableFitAdvances[segmentIndex];
+        if (fitWidths == null)
             return false;
-        const fitWidths = engineProfile.preferPrefixWidthsForBreakableRuns
-            ? breakablePrefixWidths[segmentIndex] ?? gWidths
-            : gWidths;
-        const usesPrefixWidths = fitWidths !== gWidths;
-        const { fitCount, fittedWidth } = fitSoftHyphenBreak(fitWidths, lineW, maxWidth, lineFitEpsilon, discretionaryHyphenWidth, usesPrefixWidths);
+        const { fitCount, fittedWidth } = fitSoftHyphenBreak(fitWidths, lineW, maxWidth, lineFitEpsilon, discretionaryHyphenWidth, prepared.letterSpacing);
         if (fitCount === 0)
             return false;
         lineW = fittedWidth;
         lineEndSegmentIndex = segmentIndex;
         lineEndGraphemeIndex = fitCount;
         clearPendingBreak();
-        if (fitCount === gWidths.length) {
+        if (fitCount === fitWidths.length) {
             lineEndSegmentIndex = segmentIndex + 1;
             lineEndGraphemeIndex = 0;
             return true;
@@ -400,13 +404,7 @@ export function walkPreparedLines(prepared, maxWidth, onLine) {
     }
     function emitEmptyChunk(chunk) {
         lineCount++;
-        onLine?.({
-            startSegmentIndex: chunk.startSegmentIndex,
-            startGraphemeIndex: 0,
-            endSegmentIndex: chunk.consumedEndSegmentIndex,
-            endGraphemeIndex: 0,
-            width: 0,
-        });
+        onLine?.(0, chunk.startSegmentIndex, 0, chunk.consumedEndSegmentIndex, 0);
         clearPendingBreak();
     }
     for (let chunkIndex = 0; chunkIndex < chunks.length; chunkIndex++) {
@@ -424,8 +422,19 @@ export function walkPreparedLines(prepared, maxWidth, onLine) {
         clearPendingBreak();
         let i = chunk.startSegmentIndex;
         while (i < chunk.endSegmentIndex) {
+            if (!hasContent) {
+                i = normalizeLineStartSegmentIndex(prepared, i, chunk.endSegmentIndex);
+                if (i >= chunk.endSegmentIndex)
+                    break;
+            }
             const kind = kinds[i];
-            const w = kind === 'tab' ? getTabAdvance(lineW, tabStopAdvance) : widths[i];
+            const breakAfter = breaksAfter(kind);
+            const leadingSpacing = getLeadingLetterSpacing(prepared, hasContent, i);
+            const w = kind === 'tab'
+                ? getTabAdvance(lineW + leadingSpacing, prepared.tabStopAdvance)
+                : widths[i];
+            const advance = leadingSpacing + w;
+            const fitAdvance = getWholeSegmentFitContribution(prepared, kind, i, leadingSpacing, w);
             if (kind === 'soft-hyphen') {
                 if (hasContent) {
                     lineEndSegmentIndex = i + 1;
@@ -439,23 +448,23 @@ export function walkPreparedLines(prepared, maxWidth, onLine) {
                 continue;
             }
             if (!hasContent) {
-                if (w > maxWidth && breakableWidths[i] !== null) {
-                    appendBreakableSegment(i);
+                if (fitAdvance > fitLimit && breakableFitAdvances[i] !== null) {
+                    appendBreakableSegmentFrom(i, 0);
                 }
                 else {
                     startLineAtSegment(i, w);
                 }
-                updatePendingBreakForWholeSegment(i, w);
+                updatePendingBreakForWholeSegment(kind, breakAfter, i, w, leadingSpacing, advance);
                 i++;
                 continue;
             }
-            const newW = lineW + w;
-            if (newW > maxWidth + lineFitEpsilon) {
-                const currentBreakFitWidth = lineW + (kind === 'tab' ? 0 : lineEndFitAdvances[i]);
-                const currentBreakPaintWidth = lineW + (kind === 'tab' ? w : lineEndPaintAdvances[i]);
+            const newFitW = lineW + fitAdvance;
+            if (newFitW > fitLimit) {
+                const currentBreakFitWidth = lineW + getBreakOpportunityFitContribution(prepared, kind, i, leadingSpacing);
+                const currentBreakPaintWidth = lineW + getLineEndPaintContribution(prepared, kind, i, leadingSpacing, w);
                 if (pendingBreakKind === 'soft-hyphen' &&
                     engineProfile.preferEarlySoftHyphenBreak &&
-                    pendingBreakFitWidth <= maxWidth + lineFitEpsilon) {
+                    pendingBreakFitWidth <= fitLimit) {
                     emitCurrentLine(pendingBreakSegmentIndex, 0, pendingBreakPaintWidth);
                     continue;
                 }
@@ -463,27 +472,34 @@ export function walkPreparedLines(prepared, maxWidth, onLine) {
                     i++;
                     continue;
                 }
-                if (canBreakAfter(kind) && currentBreakFitWidth <= maxWidth + lineFitEpsilon) {
-                    appendWholeSegment(i, w);
+                if (breakAfter && currentBreakFitWidth <= fitLimit) {
+                    appendWholeSegment(i, advance);
                     emitCurrentLine(i + 1, 0, currentBreakPaintWidth);
                     i++;
                     continue;
                 }
-                if (pendingBreakSegmentIndex >= 0 && pendingBreakFitWidth <= maxWidth + lineFitEpsilon) {
-                    emitCurrentLine(pendingBreakSegmentIndex, 0, pendingBreakPaintWidth);
+                if (pendingBreakSegmentIndex >= 0 && pendingBreakFitWidth <= fitLimit) {
+                    if (lineEndSegmentIndex > pendingBreakSegmentIndex ||
+                        (lineEndSegmentIndex === pendingBreakSegmentIndex && lineEndGraphemeIndex > 0)) {
+                        emitCurrentLine();
+                        continue;
+                    }
+                    const nextSegmentIndex = pendingBreakSegmentIndex;
+                    emitCurrentLine(nextSegmentIndex, 0, pendingBreakPaintWidth);
+                    i = nextSegmentIndex;
                     continue;
                 }
-                if (w > maxWidth && breakableWidths[i] !== null) {
+                if (fitAdvance > fitLimit && breakableFitAdvances[i] !== null) {
                     emitCurrentLine();
-                    appendBreakableSegment(i);
+                    appendBreakableSegmentFrom(i, 0);
                     i++;
                     continue;
                 }
                 emitCurrentLine();
                 continue;
             }
-            appendWholeSegment(i, w);
-            updatePendingBreakForWholeSegment(i, w);
+            appendWholeSegment(i, advance);
+            updatePendingBreakForWholeSegment(kind, breakAfter, i, w, leadingSpacing, advance);
             i++;
         }
         if (hasContent) {
@@ -495,35 +511,34 @@ export function walkPreparedLines(prepared, maxWidth, onLine) {
     }
     return lineCount;
 }
-export function layoutNextLineRange(prepared, start, maxWidth) {
-    const normalizedStart = normalizeLineStart(prepared, start);
-    if (normalizedStart === null)
-        return null;
-    if (prepared.simpleLineWalkFastPath) {
-        return layoutNextLineRangeSimple(prepared, normalizedStart, maxWidth);
-    }
-    const chunkIndex = findChunkIndexForStart(prepared, normalizedStart.segmentIndex);
-    if (chunkIndex < 0)
-        return null;
+export function walkPreparedLines(prepared, maxWidth, onLine) {
+    if (onLine === undefined)
+        return walkPreparedLinesRaw(prepared, maxWidth);
+    return walkPreparedLinesRaw(prepared, maxWidth, (width, startSegmentIndex, startGraphemeIndex, endSegmentIndex, endGraphemeIndex) => {
+        onLine({
+            startSegmentIndex,
+            startGraphemeIndex,
+            endSegmentIndex,
+            endGraphemeIndex,
+            width,
+        });
+    });
+}
+function stepPreparedChunkLineGeometry(prepared, cursor, chunkIndex, maxWidth) {
     const chunk = prepared.chunks[chunkIndex];
     if (chunk.startSegmentIndex === chunk.endSegmentIndex) {
-        return {
-            startSegmentIndex: chunk.startSegmentIndex,
-            startGraphemeIndex: 0,
-            endSegmentIndex: chunk.consumedEndSegmentIndex,
-            endGraphemeIndex: 0,
-            width: 0,
-        };
+        cursor.segmentIndex = chunk.consumedEndSegmentIndex;
+        cursor.graphemeIndex = 0;
+        return 0;
     }
-    const { widths, lineEndFitAdvances, lineEndPaintAdvances, kinds, breakableWidths, breakablePrefixWidths, discretionaryHyphenWidth, tabStopAdvance, } = prepared;
+    const { widths, kinds, breakableFitAdvances, discretionaryHyphenWidth, } = prepared;
     const engineProfile = getEngineProfile();
     const lineFitEpsilon = engineProfile.lineFitEpsilon;
+    const fitLimit = maxWidth + lineFitEpsilon;
     let lineW = 0;
     let hasContent = false;
-    const lineStartSegmentIndex = normalizedStart.segmentIndex;
-    const lineStartGraphemeIndex = normalizedStart.graphemeIndex;
-    let lineEndSegmentIndex = lineStartSegmentIndex;
-    let lineEndGraphemeIndex = lineStartGraphemeIndex;
+    let lineEndSegmentIndex = cursor.segmentIndex;
+    let lineEndGraphemeIndex = cursor.graphemeIndex;
     let pendingBreakSegmentIndex = -1;
     let pendingBreakFitWidth = 0;
     let pendingBreakPaintWidth = 0;
@@ -537,13 +552,9 @@ export function layoutNextLineRange(prepared, start, maxWidth) {
     function finishLine(endSegmentIndex = lineEndSegmentIndex, endGraphemeIndex = lineEndGraphemeIndex, width = lineW) {
         if (!hasContent)
             return null;
-        return {
-            startSegmentIndex: lineStartSegmentIndex,
-            startGraphemeIndex: lineStartGraphemeIndex,
-            endSegmentIndex,
-            endGraphemeIndex,
-            width,
-        };
+        cursor.segmentIndex = endSegmentIndex;
+        cursor.graphemeIndex = endGraphemeIndex;
+        return width;
     }
     function startLineAtSegment(segmentIndex, width) {
         hasContent = true;
@@ -557,42 +568,44 @@ export function layoutNextLineRange(prepared, start, maxWidth) {
         lineEndGraphemeIndex = graphemeIndex + 1;
         lineW = width;
     }
-    function appendWholeSegment(segmentIndex, width) {
+    function appendWholeSegment(segmentIndex, advance) {
         if (!hasContent) {
-            startLineAtSegment(segmentIndex, width);
+            startLineAtSegment(segmentIndex, advance);
             return;
         }
-        lineW += width;
+        lineW += advance;
         lineEndSegmentIndex = segmentIndex + 1;
         lineEndGraphemeIndex = 0;
     }
-    function updatePendingBreakForWholeSegment(segmentIndex, segmentWidth) {
-        if (!canBreakAfter(kinds[segmentIndex]))
+    function updatePendingBreakForWholeSegment(kind, breakAfter, segmentIndex, segmentWidth, leadingSpacing, advance) {
+        if (!breakAfter)
             return;
-        const fitAdvance = kinds[segmentIndex] === 'tab' ? 0 : lineEndFitAdvances[segmentIndex];
-        const paintAdvance = kinds[segmentIndex] === 'tab' ? segmentWidth : lineEndPaintAdvances[segmentIndex];
+        const fitAdvance = getBreakOpportunityFitContribution(prepared, kind, segmentIndex, leadingSpacing);
+        const paintAdvance = getLineEndPaintContribution(prepared, kind, segmentIndex, leadingSpacing, segmentWidth);
         pendingBreakSegmentIndex = segmentIndex + 1;
-        pendingBreakFitWidth = lineW - segmentWidth + fitAdvance;
-        pendingBreakPaintWidth = lineW - segmentWidth + paintAdvance;
-        pendingBreakKind = kinds[segmentIndex];
+        pendingBreakFitWidth = lineW - advance + fitAdvance;
+        pendingBreakPaintWidth = lineW - advance + paintAdvance;
+        pendingBreakKind = kind;
     }
     function appendBreakableSegmentFrom(segmentIndex, startGraphemeIndex) {
-        const gWidths = breakableWidths[segmentIndex];
-        const gPrefixWidths = breakablePrefixWidths[segmentIndex] ?? null;
-        for (let g = startGraphemeIndex; g < gWidths.length; g++) {
-            const gw = getBreakableAdvance(gWidths, gPrefixWidths, g, engineProfile.preferPrefixWidthsForBreakableRuns);
+        const fitAdvances = breakableFitAdvances[segmentIndex];
+        for (let g = startGraphemeIndex; g < fitAdvances.length; g++) {
+            const baseGw = fitAdvances[g];
             if (!hasContent) {
-                startLineAtGrapheme(segmentIndex, g, gw);
-                continue;
+                startLineAtGrapheme(segmentIndex, g, baseGw);
             }
-            if (lineW + gw > maxWidth + lineFitEpsilon) {
-                return finishLine();
+            else {
+                const gw = getBreakableGraphemeAdvance(prepared, true, baseGw);
+                const candidatePaintWidth = lineW + gw;
+                if (getBreakableCandidateFitWidth(prepared, candidatePaintWidth) > fitLimit) {
+                    return finishLine();
+                }
+                lineW = candidatePaintWidth;
+                lineEndSegmentIndex = segmentIndex;
+                lineEndGraphemeIndex = g + 1;
             }
-            lineW += gw;
-            lineEndSegmentIndex = segmentIndex;
-            lineEndGraphemeIndex = g + 1;
         }
-        if (hasContent && lineEndSegmentIndex === segmentIndex && lineEndGraphemeIndex === gWidths.length) {
+        if (hasContent && lineEndSegmentIndex === segmentIndex && lineEndGraphemeIndex === fitAdvances.length) {
             lineEndSegmentIndex = segmentIndex + 1;
             lineEndGraphemeIndex = 0;
         }
@@ -601,14 +614,10 @@ export function layoutNextLineRange(prepared, start, maxWidth) {
     function maybeFinishAtSoftHyphen(segmentIndex) {
         if (pendingBreakKind !== 'soft-hyphen' || pendingBreakSegmentIndex < 0)
             return null;
-        const gWidths = breakableWidths[segmentIndex] ?? null;
-        if (gWidths !== null) {
-            const fitWidths = engineProfile.preferPrefixWidthsForBreakableRuns
-                ? breakablePrefixWidths[segmentIndex] ?? gWidths
-                : gWidths;
-            const usesPrefixWidths = fitWidths !== gWidths;
-            const { fitCount, fittedWidth } = fitSoftHyphenBreak(fitWidths, lineW, maxWidth, lineFitEpsilon, discretionaryHyphenWidth, usesPrefixWidths);
-            if (fitCount === gWidths.length) {
+        const fitWidths = breakableFitAdvances[segmentIndex] ?? null;
+        if (fitWidths !== null) {
+            const { fitCount, fittedWidth } = fitSoftHyphenBreak(fitWidths, lineW, maxWidth, lineFitEpsilon, discretionaryHyphenWidth, prepared.letterSpacing);
+            if (fitCount === fitWidths.length) {
                 lineW = fittedWidth;
                 lineEndSegmentIndex = segmentIndex + 1;
                 lineEndGraphemeIndex = 0;
@@ -619,15 +628,21 @@ export function layoutNextLineRange(prepared, start, maxWidth) {
                 return finishLine(segmentIndex, fitCount, fittedWidth + discretionaryHyphenWidth);
             }
         }
-        if (pendingBreakFitWidth <= maxWidth + lineFitEpsilon) {
+        if (pendingBreakFitWidth <= fitLimit) {
             return finishLine(pendingBreakSegmentIndex, 0, pendingBreakPaintWidth);
         }
         return null;
     }
-    for (let i = normalizedStart.segmentIndex; i < chunk.endSegmentIndex; i++) {
+    for (let i = cursor.segmentIndex; i < chunk.endSegmentIndex; i++) {
         const kind = kinds[i];
-        const startGraphemeIndex = i === normalizedStart.segmentIndex ? normalizedStart.graphemeIndex : 0;
-        const w = kind === 'tab' ? getTabAdvance(lineW, tabStopAdvance) : widths[i];
+        const breakAfter = breaksAfter(kind);
+        const startGraphemeIndex = i === cursor.segmentIndex ? cursor.graphemeIndex : 0;
+        const leadingSpacing = getLeadingLetterSpacing(prepared, hasContent, i);
+        const w = kind === 'tab'
+            ? getTabAdvance(lineW + leadingSpacing, prepared.tabStopAdvance)
+            : widths[i];
+        const advance = leadingSpacing + w;
+        const fitAdvance = getWholeSegmentFitContribution(prepared, kind, i, leadingSpacing, w);
         if (kind === 'soft-hyphen' && startGraphemeIndex === 0) {
             if (hasContent) {
                 lineEndSegmentIndex = i + 1;
@@ -645,7 +660,7 @@ export function layoutNextLineRange(prepared, start, maxWidth) {
                 if (line !== null)
                     return line;
             }
-            else if (w > maxWidth && breakableWidths[i] !== null) {
+            else if (fitAdvance > fitLimit && breakableFitAdvances[i] !== null) {
                 const line = appendBreakableSegmentFrom(i, 0);
                 if (line !== null)
                     return line;
@@ -653,29 +668,33 @@ export function layoutNextLineRange(prepared, start, maxWidth) {
             else {
                 startLineAtSegment(i, w);
             }
-            updatePendingBreakForWholeSegment(i, w);
+            updatePendingBreakForWholeSegment(kind, breakAfter, i, w, leadingSpacing, advance);
             continue;
         }
-        const newW = lineW + w;
-        if (newW > maxWidth + lineFitEpsilon) {
-            const currentBreakFitWidth = lineW + (kind === 'tab' ? 0 : lineEndFitAdvances[i]);
-            const currentBreakPaintWidth = lineW + (kind === 'tab' ? w : lineEndPaintAdvances[i]);
+        const newFitW = lineW + fitAdvance;
+        if (newFitW > fitLimit) {
+            const currentBreakFitWidth = lineW + getBreakOpportunityFitContribution(prepared, kind, i, leadingSpacing);
+            const currentBreakPaintWidth = lineW + getLineEndPaintContribution(prepared, kind, i, leadingSpacing, w);
             if (pendingBreakKind === 'soft-hyphen' &&
                 engineProfile.preferEarlySoftHyphenBreak &&
-                pendingBreakFitWidth <= maxWidth + lineFitEpsilon) {
+                pendingBreakFitWidth <= fitLimit) {
                 return finishLine(pendingBreakSegmentIndex, 0, pendingBreakPaintWidth);
             }
             const softBreakLine = maybeFinishAtSoftHyphen(i);
             if (softBreakLine !== null)
                 return softBreakLine;
-            if (canBreakAfter(kind) && currentBreakFitWidth <= maxWidth + lineFitEpsilon) {
-                appendWholeSegment(i, w);
+            if (breakAfter && currentBreakFitWidth <= fitLimit) {
+                appendWholeSegment(i, advance);
                 return finishLine(i + 1, 0, currentBreakPaintWidth);
             }
-            if (pendingBreakSegmentIndex >= 0 && pendingBreakFitWidth <= maxWidth + lineFitEpsilon) {
+            if (pendingBreakSegmentIndex >= 0 && pendingBreakFitWidth <= fitLimit) {
+                if (lineEndSegmentIndex > pendingBreakSegmentIndex ||
+                    (lineEndSegmentIndex === pendingBreakSegmentIndex && lineEndGraphemeIndex > 0)) {
+                    return finishLine();
+                }
                 return finishLine(pendingBreakSegmentIndex, 0, pendingBreakPaintWidth);
             }
-            if (w > maxWidth && breakableWidths[i] !== null) {
+            if (fitAdvance > fitLimit && breakableFitAdvances[i] !== null) {
                 const currentLine = finishLine();
                 if (currentLine !== null)
                     return currentLine;
@@ -685,128 +704,177 @@ export function layoutNextLineRange(prepared, start, maxWidth) {
             }
             return finishLine();
         }
-        appendWholeSegment(i, w);
-        updatePendingBreakForWholeSegment(i, w);
+        appendWholeSegment(i, advance);
+        updatePendingBreakForWholeSegment(kind, breakAfter, i, w, leadingSpacing, advance);
     }
     if (pendingBreakSegmentIndex === chunk.consumedEndSegmentIndex && lineEndGraphemeIndex === 0) {
         return finishLine(chunk.consumedEndSegmentIndex, 0, pendingBreakPaintWidth);
     }
     return finishLine(chunk.consumedEndSegmentIndex, 0, lineW);
 }
-function layoutNextLineRangeSimple(prepared, normalizedStart, maxWidth) {
-    const { widths, kinds, breakableWidths, breakablePrefixWidths } = prepared;
+function stepPreparedSimpleLineGeometry(prepared, cursor, maxWidth) {
+    const { widths, kinds, breakableFitAdvances } = prepared;
     const engineProfile = getEngineProfile();
     const lineFitEpsilon = engineProfile.lineFitEpsilon;
+    const fitLimit = maxWidth + lineFitEpsilon;
     let lineW = 0;
     let hasContent = false;
-    const lineStartSegmentIndex = normalizedStart.segmentIndex;
-    const lineStartGraphemeIndex = normalizedStart.graphemeIndex;
-    let lineEndSegmentIndex = lineStartSegmentIndex;
-    let lineEndGraphemeIndex = lineStartGraphemeIndex;
+    let lineEndSegmentIndex = cursor.segmentIndex;
+    let lineEndGraphemeIndex = cursor.graphemeIndex;
     let pendingBreakSegmentIndex = -1;
     let pendingBreakPaintWidth = 0;
-    function finishLine(endSegmentIndex = lineEndSegmentIndex, endGraphemeIndex = lineEndGraphemeIndex, width = lineW) {
-        if (!hasContent)
-            return null;
-        return {
-            startSegmentIndex: lineStartSegmentIndex,
-            startGraphemeIndex: lineStartGraphemeIndex,
-            endSegmentIndex,
-            endGraphemeIndex,
-            width,
-        };
-    }
-    function startLineAtSegment(segmentIndex, width) {
-        hasContent = true;
-        lineEndSegmentIndex = segmentIndex + 1;
-        lineEndGraphemeIndex = 0;
-        lineW = width;
-    }
-    function startLineAtGrapheme(segmentIndex, graphemeIndex, width) {
-        hasContent = true;
-        lineEndSegmentIndex = segmentIndex;
-        lineEndGraphemeIndex = graphemeIndex + 1;
-        lineW = width;
-    }
-    function appendWholeSegment(segmentIndex, width) {
-        if (!hasContent) {
-            startLineAtSegment(segmentIndex, width);
-            return;
-        }
-        lineW += width;
-        lineEndSegmentIndex = segmentIndex + 1;
-        lineEndGraphemeIndex = 0;
-    }
-    function updatePendingBreak(segmentIndex, segmentWidth) {
-        if (!canBreakAfter(kinds[segmentIndex]))
-            return;
-        pendingBreakSegmentIndex = segmentIndex + 1;
-        pendingBreakPaintWidth = lineW - segmentWidth;
-    }
-    function appendBreakableSegmentFrom(segmentIndex, startGraphemeIndex) {
-        const gWidths = breakableWidths[segmentIndex];
-        const gPrefixWidths = breakablePrefixWidths[segmentIndex] ?? null;
-        for (let g = startGraphemeIndex; g < gWidths.length; g++) {
-            const gw = getBreakableAdvance(gWidths, gPrefixWidths, g, engineProfile.preferPrefixWidthsForBreakableRuns);
-            if (!hasContent) {
-                startLineAtGrapheme(segmentIndex, g, gw);
-                continue;
-            }
-            if (lineW + gw > maxWidth + lineFitEpsilon) {
-                return finishLine();
-            }
-            lineW += gw;
-            lineEndSegmentIndex = segmentIndex;
-            lineEndGraphemeIndex = g + 1;
-        }
-        if (hasContent && lineEndSegmentIndex === segmentIndex && lineEndGraphemeIndex === gWidths.length) {
-            lineEndSegmentIndex = segmentIndex + 1;
-            lineEndGraphemeIndex = 0;
-        }
-        return null;
-    }
-    for (let i = normalizedStart.segmentIndex; i < widths.length; i++) {
-        const w = widths[i];
+    for (let i = cursor.segmentIndex; i < widths.length; i++) {
         const kind = kinds[i];
-        const startGraphemeIndex = i === normalizedStart.segmentIndex ? normalizedStart.graphemeIndex : 0;
+        const breakAfter = breaksAfter(kind);
+        const startGraphemeIndex = i === cursor.segmentIndex ? cursor.graphemeIndex : 0;
+        const breakableFitAdvance = breakableFitAdvances[i];
+        const w = widths[i];
         if (!hasContent) {
-            if (startGraphemeIndex > 0) {
-                const line = appendBreakableSegmentFrom(i, startGraphemeIndex);
-                if (line !== null)
-                    return line;
-            }
-            else if (w > maxWidth && breakableWidths[i] !== null) {
-                const line = appendBreakableSegmentFrom(i, 0);
-                if (line !== null)
-                    return line;
+            if (startGraphemeIndex > 0 || (w > fitLimit && breakableFitAdvance !== null)) {
+                const fitAdvances = breakableFitAdvance;
+                const firstGraphemeWidth = fitAdvances[startGraphemeIndex];
+                hasContent = true;
+                lineW = firstGraphemeWidth;
+                lineEndSegmentIndex = i;
+                lineEndGraphemeIndex = startGraphemeIndex + 1;
+                for (let g = startGraphemeIndex + 1; g < fitAdvances.length; g++) {
+                    const gw = fitAdvances[g];
+                    if (lineW + gw > fitLimit) {
+                        cursor.segmentIndex = lineEndSegmentIndex;
+                        cursor.graphemeIndex = lineEndGraphemeIndex;
+                        return lineW;
+                    }
+                    lineW += gw;
+                    lineEndSegmentIndex = i;
+                    lineEndGraphemeIndex = g + 1;
+                }
+                if (lineEndSegmentIndex === i && lineEndGraphemeIndex === fitAdvances.length) {
+                    lineEndSegmentIndex = i + 1;
+                    lineEndGraphemeIndex = 0;
+                }
             }
             else {
-                startLineAtSegment(i, w);
+                hasContent = true;
+                lineW = w;
+                lineEndSegmentIndex = i + 1;
+                lineEndGraphemeIndex = 0;
             }
-            updatePendingBreak(i, w);
+            if (breakAfter) {
+                pendingBreakSegmentIndex = i + 1;
+                pendingBreakPaintWidth = lineW - w;
+            }
             continue;
         }
-        const newW = lineW + w;
-        if (newW > maxWidth + lineFitEpsilon) {
-            if (canBreakAfter(kind)) {
-                appendWholeSegment(i, w);
-                return finishLine(i + 1, 0, lineW - w);
+        if (lineW + w > fitLimit) {
+            if (breakAfter) {
+                cursor.segmentIndex = i + 1;
+                cursor.graphemeIndex = 0;
+                return lineW;
             }
             if (pendingBreakSegmentIndex >= 0) {
-                return finishLine(pendingBreakSegmentIndex, 0, pendingBreakPaintWidth);
+                if (lineEndSegmentIndex > pendingBreakSegmentIndex ||
+                    (lineEndSegmentIndex === pendingBreakSegmentIndex && lineEndGraphemeIndex > 0)) {
+                    cursor.segmentIndex = lineEndSegmentIndex;
+                    cursor.graphemeIndex = lineEndGraphemeIndex;
+                    return lineW;
+                }
+                cursor.segmentIndex = pendingBreakSegmentIndex;
+                cursor.graphemeIndex = 0;
+                return pendingBreakPaintWidth;
             }
-            if (w > maxWidth && breakableWidths[i] !== null) {
-                const currentLine = finishLine();
-                if (currentLine !== null)
-                    return currentLine;
-                const line = appendBreakableSegmentFrom(i, 0);
-                if (line !== null)
-                    return line;
-            }
-            return finishLine();
+            cursor.segmentIndex = lineEndSegmentIndex;
+            cursor.graphemeIndex = lineEndGraphemeIndex;
+            return lineW;
         }
-        appendWholeSegment(i, w);
-        updatePendingBreak(i, w);
+        lineW += w;
+        lineEndSegmentIndex = i + 1;
+        lineEndGraphemeIndex = 0;
+        if (breakAfter) {
+            pendingBreakSegmentIndex = i + 1;
+            pendingBreakPaintWidth = lineW - w;
+        }
     }
-    return finishLine();
+    if (!hasContent)
+        return null;
+    cursor.segmentIndex = lineEndSegmentIndex;
+    cursor.graphemeIndex = lineEndGraphemeIndex;
+    return lineW;
+}
+export function layoutNextLineRange(prepared, start, maxWidth) {
+    const end = {
+        segmentIndex: start.segmentIndex,
+        graphemeIndex: start.graphemeIndex,
+    };
+    const chunkIndex = normalizeLineStartChunkIndex(prepared, end);
+    if (chunkIndex < 0)
+        return null;
+    const lineStartSegmentIndex = end.segmentIndex;
+    const lineStartGraphemeIndex = end.graphemeIndex;
+    const width = prepared.simpleLineWalkFastPath
+        ? stepPreparedSimpleLineGeometry(prepared, end, maxWidth)
+        : stepPreparedChunkLineGeometry(prepared, end, chunkIndex, maxWidth);
+    if (width === null)
+        return null;
+    return {
+        startSegmentIndex: lineStartSegmentIndex,
+        startGraphemeIndex: lineStartGraphemeIndex,
+        endSegmentIndex: end.segmentIndex,
+        endGraphemeIndex: end.graphemeIndex,
+        width,
+    };
+}
+export function stepPreparedLineGeometry(prepared, cursor, maxWidth) {
+    const chunkIndex = normalizeLineStartChunkIndex(prepared, cursor);
+    if (chunkIndex < 0)
+        return null;
+    if (prepared.simpleLineWalkFastPath) {
+        return stepPreparedSimpleLineGeometry(prepared, cursor, maxWidth);
+    }
+    return stepPreparedChunkLineGeometry(prepared, cursor, chunkIndex, maxWidth);
+}
+export function measurePreparedLineGeometry(prepared, maxWidth) {
+    if (prepared.widths.length === 0) {
+        return {
+            lineCount: 0,
+            maxLineWidth: 0,
+        };
+    }
+    const cursor = {
+        segmentIndex: 0,
+        graphemeIndex: 0,
+    };
+    let lineCount = 0;
+    let maxLineWidth = 0;
+    if (!prepared.simpleLineWalkFastPath) {
+        let chunkIndex = normalizeLineStartChunkIndex(prepared, cursor);
+        while (chunkIndex >= 0) {
+            const lineWidth = stepPreparedChunkLineGeometry(prepared, cursor, chunkIndex, maxWidth);
+            if (lineWidth === null) {
+                return {
+                    lineCount,
+                    maxLineWidth,
+                };
+            }
+            lineCount++;
+            if (lineWidth > maxLineWidth)
+                maxLineWidth = lineWidth;
+            chunkIndex = normalizeLineStartChunkIndexFromHint(prepared, chunkIndex, cursor);
+        }
+        return {
+            lineCount,
+            maxLineWidth,
+        };
+    }
+    while (true) {
+        const lineWidth = stepPreparedLineGeometry(prepared, cursor, maxWidth);
+        if (lineWidth === null) {
+            return {
+                lineCount,
+                maxLineWidth,
+            };
+        }
+        lineCount++;
+        if (lineWidth > maxLineWidth)
+            maxLineWidth = lineWidth;
+    }
 }

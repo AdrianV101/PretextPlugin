@@ -75,6 +75,51 @@ const checks: PatternCheck[] = [
     fix: 'Use pretext layout APIs exclusively for text dimensions. Remove DOM measurement calls.',
   },
   {
+    pattern: 'wordbreak-misuse',
+    severity: 'warning',
+    test: (code) => {
+      const usesKeepAll = /wordBreak\s*:\s*['"]keep-all['"]/.test(code)
+      if (!usesKeepAll) return false
+      // keep-all only affects CJK and Hangul. If the code shows no sign of
+      // dealing with those scripts, the option is likely a no-op.
+      const referencesCJKOrHangul =
+        /\\u(?:[3-9A-F]|AC|D7|3[0-9A-F]|4[0-9A-F]|FF)/i.test(code) || // CJK/Hangul Unicode escape ranges
+        /[　-鿿가-힯豈-﫿]/.test(code) || // literal CJK/Hangul
+        /\b(?:CJK|Hangul|Korean|Japanese|Chinese|Hanzi|Kanji)\b/i.test(code) // domain hints
+      return !referencesCJKOrHangul
+    },
+    explanation:
+      'wordBreak: "keep-all" only affects CJK and Hangul text. On Latin-only content it is a no-op and obscures intent.',
+    fix: 'Remove wordBreak option, or default to "normal" unless the text is Korean/Japanese/Chinese.',
+  },
+  {
+    pattern: 'excessive-letterspacing',
+    severity: 'info',
+    // Match integer part >= 10 whether the value is whole or fractional.
+    // Email-like decimals (8.5) stay clean; bug values (10, 10.5, 25.0, 99.9) get caught.
+    test: (code) => /letterSpacing\s*:\s*(?:\d{3,}|[1-9]\d)(?:\.\d+)?\b/.test(code),
+    explanation:
+      'letterSpacing values with absolute value ≥10 in pretext are CSS pixels — not em or percent. A 10+ pixel gap between glyphs is almost always a unit-confusion bug.',
+    fix: 'Use small fractional values (e.g. 0.5–2). pretext\'s letterSpacing is plain CSS px, applied between every grapheme.',
+  },
+  {
+    pattern: 'prepare-vs-rich-inline-confusion',
+    severity: 'warning',
+    test: (code) => {
+      if (/prepareRichInline\s*\(/.test(code)) return false
+      const usesPrepare = /\bprepare\s*\(/.test(code) || /\bprepareWithSegments\s*\(/.test(code)
+      if (!usesPrepare) return false
+      // Chip/mention markers must sit at a word boundary: start-of-string,
+      // whitespace, or comma. Avoids false-positives on email addresses
+      // ('me@example.com') and other in-word @/# uses.
+      const hasChipShapedString = /['"`](?:[^'"`\n]*[\s,])?[@#]\w+(?:[\s,][^'"`\n]*)?['"`]/.test(code)
+      return hasChipShapedString
+    },
+    explanation:
+      'prepare()/prepareWithSegments() treat the input as flat text. For mention/chip/atom UIs (@user, #tag) prefer prepareRichInline from @chenglou/pretext/rich-inline (v0.0.5+), which supports per-item styling and atomic break: "never".',
+    fix: 'Replace prepare(text, font) with prepareRichInline(items) where items break out chips/mentions as { text, font, break: "never" } entries.',
+  },
+  {
     pattern: 'missing-pre-wrap',
     severity: 'warning',
     test: (code) => {
