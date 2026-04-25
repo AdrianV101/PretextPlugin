@@ -38,8 +38,32 @@ Issue reported
     ├── Word not breaking? → might be NBSP or zero-width joiner preventing break
     ├── Breaking mid-word? → overflow-wrap at grapheme boundary (word wider than maxWidth)
     ├── CJK punctuation orphaned? → kinsoku rules should prevent; check character ranges
+    │                                 v0.0.6 fixed CJK + opening-bracket annotations specifically
+    ├── CJK keep-all not grouping correctly? → see "wordBreak: keep-all debugging" below
+    ├── letterSpacing producing wrong widths? → see "letterSpacing debugging" below
     └── Soft hyphen not showing? → only visible when chosen as break point
 ```
+
+## wordBreak: keep-all Debugging *(v0.0.5+)*
+
+If `{ wordBreak: 'keep-all' }` doesn't seem to do anything:
+- Confirm the text is CJK or Hangul. `keep-all` is a no-op on Latin/Cyrillic/Arabic.
+- Confirm pretext is at least v0.0.5. Earlier versions silently ignore the option.
+- For mixed Latin/numeric/CJK runs (e.g. `"하루 100개"`), v0.0.6 fixed grouping; on v0.0.5 the boundary may behave differently.
+
+If keep-all is wrapping where you expect a no-break:
+- `keep-all` is *atomic-grouping*, not *no-wrap-ever*. A run wider than `maxWidth` still falls back to grapheme overflow.
+- Check whether a punctuation character is breaking the run. v0.0.6 specifically fixed CJK + `（〔《【` opening-bracket annotation breaking.
+
+## letterSpacing Debugging *(v0.0.6+)*
+
+If widths look way off when `letterSpacing` is set:
+- Confirm the value is in CSS pixels, not em or %. `letterSpacing: 8` at 16px font is roughly equivalent to CSS `letter-spacing: 0.5em`. If you intended em, multiply by font-size.
+- letterSpacing is added between *every* grapheme, including inside CJK runs. Native CSS adds it differently in some engines.
+- Total width adds `(graphemeCount - 1) * letterSpacing` per segment. Use `pretext_measure` to compare per-segment widths with and without letterSpacing.
+
+If only some text is affected:
+- In `prepareRichInline`, `letterSpacing` is per-item, not global. A mixed-font run can have one item with letterSpacing and another without.
 
 ## Browser-Specific Issues
 

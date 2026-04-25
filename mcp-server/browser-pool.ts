@@ -32,7 +32,9 @@ const PAGE_HTML = `<!DOCTYPE html>
 <html><head><meta charset="utf-8"></head><body>
 <script type="module">
   import * as p from '${PRETEXT_ORIGIN}/layout.js'
+  import * as ri from '${PRETEXT_ORIGIN}/rich-inline.js'
   window.__pretext = p
+  window.__pretextRichInline = ri
 </script>
 </body></html>`
 
@@ -108,7 +110,11 @@ export class BrowserPool {
       await registerPretextRoute(page)
       await page.setContent(PAGE_HTML)
       try {
-        await page.waitForFunction(() => (globalThis as any).__pretext !== undefined, null, { timeout: 5000 })
+        await page.waitForFunction(
+          () => (globalThis as any).__pretext !== undefined && (globalThis as any).__pretextRichInline !== undefined,
+          null,
+          { timeout: 5000 },
+        )
       } catch (err) {
         throw new Error(
           `pretext bundle failed to load in page within 5s. ` +

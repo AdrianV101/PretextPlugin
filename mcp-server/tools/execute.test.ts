@@ -96,6 +96,112 @@ describe('pretext_measure', () => {
   })
 })
 
+describe('pretext_run v0.0.5+ options', () => {
+  test('accepts wordBreak: keep-all option', async () => {
+    const { handleRun } = await import('./execute.js')
+    const result = await handleRun({
+      text: 'hello world',
+      font: '16px sans-serif',
+      width: 1000,
+      lineHeight: 20,
+      wordBreak: 'keep-all',
+    })
+    expect(result.lineCount).toBe(1)
+  })
+
+  test('letterSpacing widens text relative to no spacing', async () => {
+    const { handleRun } = await import('./execute.js')
+    const narrow = await handleRun({
+      text: 'hello world hello world hello world',
+      font: '16px sans-serif',
+      width: 200,
+      lineHeight: 20,
+      letterSpacing: 0,
+    })
+    const wide = await handleRun({
+      text: 'hello world hello world hello world',
+      font: '16px sans-serif',
+      width: 200,
+      lineHeight: 20,
+      letterSpacing: 5,
+    })
+    // Wider letterSpacing should require at least as many lines.
+    expect(wide.lineCount).toBeGreaterThanOrEqual(narrow.lineCount)
+  })
+})
+
+describe('pretext_run rich-inline mode', () => {
+  test('accepts a richInline items array and returns sensible line counts', async () => {
+    const { handleRun } = await import('./execute.js')
+    const result = await handleRun({
+      richInline: [
+        { text: 'Hello ', font: '16px sans-serif' },
+        { text: '@alice', font: '16px sans-serif', break: 'never' },
+        { text: ' how are you?', font: '16px sans-serif' },
+      ],
+      font: '16px sans-serif',
+      width: 1000,
+      lineHeight: 20,
+    } as any)
+    expect(result.lineCount).toBe(1)
+    expect(result.height).toBe(20)
+  })
+
+  test('rejects when both text and richInline are provided', async () => {
+    const { handleRun } = await import('./execute.js')
+    await expect(
+      handleRun({
+        text: 'hi',
+        richInline: [{ text: 'hi', font: '16px sans-serif' }],
+        font: '16px sans-serif',
+        width: 100,
+        lineHeight: 20,
+      } as any),
+    ).rejects.toThrow(/either `text` or `richInline`/i)
+  })
+
+  test('rich-inline with narrow width wraps onto multiple lines', async () => {
+    const { handleRun } = await import('./execute.js')
+    const result = await handleRun({
+      richInline: [
+        { text: 'one two three four five six seven eight nine ten', font: '16px sans-serif' },
+      ],
+      font: '16px sans-serif',
+      width: 50,
+      lineHeight: 20,
+    } as any)
+    expect(result.lineCount).toBeGreaterThan(1)
+  })
+})
+
+describe('pretext_measure v0.0.5+ options', () => {
+  test('accepts wordBreak option without error', async () => {
+    const { handleMeasure } = await import('./execute.js')
+    const result = await handleMeasure({
+      text: '한글 테스트',
+      font: '16px sans-serif',
+      wordBreak: 'keep-all',
+    })
+    expect(result.error).toBeUndefined()
+    expect(result.segments.length).toBeGreaterThan(0)
+  })
+
+  test('letterSpacing changes total width', async () => {
+    const { handleMeasure } = await import('./execute.js')
+    const a = await handleMeasure({
+      text: 'hello',
+      font: '16px sans-serif',
+      letterSpacing: 0,
+    })
+    const b = await handleMeasure({
+      text: 'hello',
+      font: '16px sans-serif',
+      letterSpacing: 4,
+    })
+    expect(b.totalWidth).toBeGreaterThan(a.totalWidth)
+  })
+})
+
 describe('pretext_run edge cases', () => {
   test('handles empty string', async () => {
     const { handleRun } = await import('./execute.js')

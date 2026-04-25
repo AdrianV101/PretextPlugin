@@ -1,6 +1,6 @@
 # Script Support Matrix
 
-Per-script accuracy, preprocessing, and known issues for pretext v0.0.3.
+Per-script accuracy, preprocessing, and known issues for pretext. Numbers below come from the v0.0.3 validation sweep; v0.0.5 and v0.0.6 added improvements that haven't been re-benchmarked but are noted inline.
 
 ## Latin
 
@@ -15,6 +15,8 @@ Per-script accuracy, preprocessing, and known issues for pretext v0.0.3.
 - **Preprocessing:** `isCJK()` covers BMP + Extensions A-G via `codePointAt()`. Kinsoku rules for punctuation attachment. CJK closing-quote carry (Chromium only).
 - **Line breaking:** Per-grapheme units. Each CJK character is a potential break point, except kinsoku-prohibited positions.
 - **Known issues:** Extension H gap (newest Unicode block). Chinese accuracy highly font-dependent — varies by installed CJK fonts.
+- **v0.0.5+:** Bidi metadata and CJK detection now correctly handle astral Unicode ranges; analysis is more resilient on long mixed-script and repeated-punctuation inputs. `wordBreak: 'keep-all'` available for atomic CJK/Hangul grouping.
+- **v0.0.6+:** CJK text preceding opening-bracket annotations (e.g. `（〔《【`) now breaks like browsers instead of orphaning the bracket. `keep-all` improvements for mixed Latin/numeric/CJK runs without spaces.
 
 ## Arabic
 

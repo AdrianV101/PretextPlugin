@@ -75,6 +75,49 @@ const checks: PatternCheck[] = [
     fix: 'Use pretext layout APIs exclusively for text dimensions. Remove DOM measurement calls.',
   },
   {
+    pattern: 'wordbreak-misuse',
+    severity: 'warning',
+    test: (code) => {
+      const usesKeepAll = /wordBreak\s*:\s*['"]keep-all['"]/.test(code)
+      if (!usesKeepAll) return false
+      // keep-all only affects CJK and Hangul. If the code shows no sign of
+      // dealing with those scripts, the option is likely a no-op.
+      const referencesCJKOrHangul =
+        /\\u(?:[3-9A-F]|AC|D7|3[0-9A-F]|4[0-9A-F]|FF)/i.test(code) || // CJK/Hangul Unicode escape ranges
+        /[　-鿿가-힯豈-﫿]/.test(code) || // literal CJK/Hangul
+        /\b(?:CJK|Hangul|Korean|Japanese|Chinese|Hanzi|Kanji)\b/i.test(code) // domain hints
+      return !referencesCJKOrHangul
+    },
+    explanation:
+      'wordBreak: "keep-all" only affects CJK and Hangul text. On Latin-only content it is a no-op and obscures intent.',
+    fix: 'Remove wordBreak option, or default to "normal" unless the text is Korean/Japanese/Chinese.',
+  },
+  {
+    pattern: 'excessive-letterspacing',
+    severity: 'info',
+    test: (code) => /letterSpacing\s*:\s*-?\d{2,}(?!\s*\.)/.test(code),
+    explanation:
+      'letterSpacing values ≥10 in pretext are CSS pixels — not em or percent. A 10+ pixel gap between glyphs is almost always a unit-confusion bug.',
+    fix: 'Use small fractional values (e.g. 0.5–2). pretext\'s letterSpacing is plain CSS px, applied between every grapheme.',
+  },
+  {
+    pattern: 'prepare-vs-rich-inline-confusion',
+    severity: 'warning',
+    test: (code) => {
+      // Already on the rich-inline path? Don't flag.
+      if (/prepareRichInline\s*\(/.test(code)) return false
+      const usesPrepare = /\bprepare\s*\(/.test(code) || /\bprepareWithSegments\s*\(/.test(code)
+      if (!usesPrepare) return false
+      // Inline content like "@alice" or "#tag" inside a string passed to prepare
+      // suggests the author should be using prepareRichInline (chips/mentions).
+      const hasChipShapedString = /['"`][^'"`\n]*(?:@\w+|#\w+)[^'"`\n]*['"`]/.test(code)
+      return hasChipShapedString
+    },
+    explanation:
+      'prepare()/prepareWithSegments() treat the input as flat text. For mention/chip/atom UIs (@user, #tag) prefer prepareRichInline from @chenglou/pretext/rich-inline (v0.0.5+), which supports per-item styling and atomic break: "never".',
+    fix: 'Replace prepare(text, font) with prepareRichInline(items) where items break out chips/mentions as { text, font, break: "never" } entries.',
+  },
+  {
     pattern: 'missing-pre-wrap',
     severity: 'warning',
     test: (code) => {

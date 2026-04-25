@@ -140,6 +140,8 @@ const MODULE_FILES: Record<string, string> = {
   analysis: 'analysis.ts',
   measurement: 'measurement.ts',
   'line-break': 'line-break.ts',
+  'line-text': 'line-text.ts',     // v0.0.6+
+  'rich-inline': 'rich-inline.ts', // v0.0.5+
   bidi: 'bidi.ts',
 }
 
