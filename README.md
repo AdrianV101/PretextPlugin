@@ -34,11 +34,22 @@ Pretext is too new (March 2026) for LLMs to know. This plugin bridges that gap w
 
 ## Quick Start
 
+Install directly from GitHub:
+
 ```bash
-# Install from source
-git clone https://github.com/AdrianV101/PretextPlugin.git
-claude plugin install ./PretextPlugin
+claude plugin marketplace add AdrianV101/PretextPlugin
+claude plugin install pretext@pretext-marketplace
 ```
+
+Or from a local clone:
+
+```bash
+git clone https://github.com/AdrianV101/PretextPlugin.git
+claude plugin marketplace add ./PretextPlugin
+claude plugin install pretext@pretext-marketplace
+```
+
+The same commands work as slash commands inside Claude Code (`/plugin marketplace add ...`, `/plugin install ...`).
 
 Once installed, ask Claude about pretext and it will automatically activate the plugin's skills and tools:
 
