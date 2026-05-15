@@ -12,5 +12,11 @@
     "types": ["bun-types"]
   },
   "include": ["*.ts", "tools/*.ts"],
-  "exclude": ["node_modules", "dist", "*.test.ts"]
+  // Test files are intentionally NOT excluded: every *.test.ts (root and
+  // nested) is part of the type-check program, so compile-time guards
+  // (`@ts-expect-error` + `satisfies`) are enforced by `tsc --noEmit`
+  // regardless of where the test file lives. Do not re-add a "*.test.ts"
+  // exclude — it only matches root-level files and silently disables those
+  // guards in root-level tests. bun's test runner is unaffected by this.
+  "exclude": ["node_modules", "dist"]
 }

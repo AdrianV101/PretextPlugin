@@ -38,6 +38,7 @@ server.registerTool(
             extraWidth: z.number().optional(),
           }),
         )
+        .min(1, 'richInline must contain at least one item')
         .optional()
         .describe('Rich-inline items (v0.0.5+). Each item has its own font; use break:"never" for atomic chips/mentions. Mutually exclusive with text.'),
       font: z.string().optional().describe('CSS font string, e.g. "16px Inter". Required when using `text`; ignored for richInline.'),

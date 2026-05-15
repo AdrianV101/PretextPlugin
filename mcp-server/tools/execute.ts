@@ -40,6 +40,9 @@ export function narrowRunInput(input: RawRunInput): RunInput {
     throw new Error('pretext_run: pass either `text` or `richInline`, not both.')
   }
   if (richInline !== undefined) {
+    if (richInline.length === 0) {
+      throw new Error('pretext_run: `richInline` must contain at least one item.')
+    }
     return { ...base, richInline }
   }
   if (text === undefined) {

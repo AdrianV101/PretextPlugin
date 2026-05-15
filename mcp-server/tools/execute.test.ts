@@ -361,6 +361,13 @@ describe('narrowRunInput', () => {
     ).toThrow(/`text` requires `font`/i)
   })
 
+  test('rejects an empty richInline array instead of silently yielding 0 lines', async () => {
+    const { narrowRunInput } = await import('./execute.js')
+    expect(() =>
+      narrowRunInput({ richInline: [], width: 100, lineHeight: 20 }),
+    ).toThrow(/`richInline` must contain at least one item/i)
+  })
+
   test('returns the text variant for valid text input', async () => {
     const { narrowRunInput } = await import('./execute.js')
     const r = narrowRunInput({ text: 'hi', font: '16px sans-serif', width: 100, lineHeight: 20 })
