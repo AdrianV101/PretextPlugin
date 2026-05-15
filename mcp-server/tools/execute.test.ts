@@ -2,6 +2,7 @@ import { describe, test, expect, beforeAll, mock, beforeEach, afterEach } from '
 import { installCanvasShim } from '../canvas-shim.js'
 import { handleRun, handleMeasure } from './execute.js'
 import { __setPoolForTesting, __resetPoolForTesting } from '../browser.js'
+import type { RunInput } from './execute.js'
 
 beforeAll(() => {
   installCanvasShim()
@@ -376,5 +377,13 @@ describe('narrowRunInput', () => {
     })
     expect(r.richInline).toBeDefined()
     expect(r.text).toBeUndefined()
+  })
+
+  test('rejects an invalid both-fields call site at compile time', async () => {
+    const { handleRun } = await import('./execute.js')
+    // @ts-expect-error — discriminated union forbids text + richInline together
+    const bad = { text: 'a', richInline: [{ text: 'b', font: 'f' }], width: 1, lineHeight: 1 } satisfies RunInput
+    void bad
+    expect(typeof handleRun).toBe('function')
   })
 })
