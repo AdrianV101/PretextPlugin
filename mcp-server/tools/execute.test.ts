@@ -2,6 +2,7 @@ import { describe, test, expect, beforeAll, mock, beforeEach, afterEach } from '
 import { installCanvasShim } from '../canvas-shim.js'
 import { handleRun, handleMeasure } from './execute.js'
 import { __setPoolForTesting, __resetPoolForTesting } from '../browser.js'
+import type { RunInput } from './execute.js'
 
 beforeAll(() => {
   installCanvasShim()
@@ -145,30 +146,6 @@ describe('pretext_run rich-inline mode', () => {
     } as any)
     expect(result.lineCount).toBe(1)
     expect(result.height).toBe(20)
-  })
-
-  test('rejects when both text and richInline are provided', async () => {
-    const { handleRun } = await import('./execute.js')
-    await expect(
-      handleRun({
-        text: 'hi',
-        richInline: [{ text: 'hi', font: '16px sans-serif' }],
-        font: '16px sans-serif',
-        width: 100,
-        lineHeight: 20,
-      } as any),
-    ).rejects.toThrow(/either `text` or `richInline`/i)
-  })
-
-  test('rejects when neither text nor richInline is provided', async () => {
-    const { handleRun } = await import('./execute.js')
-    await expect(
-      handleRun({
-        font: '16px sans-serif',
-        width: 100,
-        lineHeight: 20,
-      } as any),
-    ).rejects.toThrow(/one of `text` or `richInline`/i)
   })
 
   test('rich: true on rich-inline path returns [item N] synthesized line text', async () => {
@@ -353,5 +330,94 @@ describe('handleMeasure mode dispatch', () => {
     })
     expect(out.totalWidth).toBe(7)
     expect(out.segments).toHaveLength(1)
+  })
+})
+
+describe('narrowRunInput', () => {
+  test('rejects when both text and richInline are provided', async () => {
+    const { narrowRunInput } = await import('./execute.js')
+    expect(() =>
+      narrowRunInput({
+        text: 'hi',
+        richInline: [{ text: 'hi', font: '16px sans-serif' }],
+        font: '16px sans-serif',
+        width: 100,
+        lineHeight: 20,
+      }),
+    ).toThrow(/either `text` or `richInline`/i)
+  })
+
+  test('rejects when neither text nor richInline is provided', async () => {
+    const { narrowRunInput } = await import('./execute.js')
+    expect(() =>
+      narrowRunInput({ font: '16px sans-serif', width: 100, lineHeight: 20 }),
+    ).toThrow(/one of `text` or `richInline`/i)
+  })
+
+  test('rejects text without font', async () => {
+    const { narrowRunInput } = await import('./execute.js')
+    expect(() =>
+      narrowRunInput({ text: 'hi', width: 100, lineHeight: 20 }),
+    ).toThrow(/`text` requires `font`/i)
+  })
+
+  test('returns the text variant for valid text input', async () => {
+    const { narrowRunInput } = await import('./execute.js')
+    const r = narrowRunInput({ text: 'hi', font: '16px sans-serif', width: 100, lineHeight: 20 })
+    expect(r.text).toBe('hi')
+    expect(r.richInline).toBeUndefined()
+  })
+
+  test('returns the rich variant for valid richInline input', async () => {
+    const { narrowRunInput } = await import('./execute.js')
+    const r = narrowRunInput({
+      richInline: [{ text: 'hi', font: '16px sans-serif' }],
+      width: 100,
+      lineHeight: 20,
+    })
+    expect(r.richInline).toBeDefined()
+    expect(r.text).toBeUndefined()
+  })
+
+  test('preserves all base fields through the rest spread', async () => {
+    const { narrowRunInput } = await import('./execute.js')
+    const r = narrowRunInput({
+      text: 'hi',
+      font: 'f',
+      width: 100,
+      lineHeight: 20,
+      mode: 'accurate',
+      browser: 'chromium',
+      letterSpacing: 3,
+      whiteSpace: 'pre-wrap',
+      wordBreak: 'keep-all',
+      locale: 'ja',
+      rich: true,
+    })
+    expect(r).toMatchObject({
+      text: 'hi',
+      font: 'f',
+      width: 100,
+      lineHeight: 20,
+      mode: 'accurate',
+      browser: 'chromium',
+      letterSpacing: 3,
+      whiteSpace: 'pre-wrap',
+      wordBreak: 'keep-all',
+      locale: 'ja',
+      rich: true,
+    })
+  })
+
+  test('rejects an invalid both-fields call site at compile time', () => {
+    // @ts-expect-error - discriminated union forbids text + richInline together
+    const bad = { text: 'a', richInline: [{ text: 'b', font: 'f' }], width: 1, lineHeight: 1 } satisfies RunInput
+    expect(bad).toBeDefined()
+  })
+
+  test('rejects a text-without-font call site at compile time', () => {
+    // @ts-expect-error - text variant of the union requires font
+    const bad = { text: 'a', width: 1, lineHeight: 1 } satisfies RunInput
+    expect(bad).toBeDefined()
   })
 })

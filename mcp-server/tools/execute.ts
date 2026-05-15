@@ -7,10 +7,7 @@ import type { BrowserType } from '../browser-pool.js'
 
 const PROJECT_DIR = process.cwd()
 
-export type RunInput = {
-  text?: string
-  richInline?: RichInlineItem[]
-  font?: string
+type RunInputBase = {
   width: number
   lineHeight: number
   whiteSpace?: 'normal' | 'pre-wrap'
@@ -20,6 +17,38 @@ export type RunInput = {
   rich?: boolean
   mode?: 'structural' | 'accurate'
   browser?: BrowserType
+}
+
+export type RunInput =
+  | (RunInputBase & { text: string; font: string; richInline?: never })
+  | (RunInputBase & { richInline: RichInlineItem[]; text?: never; font?: string })
+
+/** Loose shape as parsed by the MCP Zod schema, before exclusivity narrowing. */
+export type RawRunInput = RunInputBase & {
+  text?: string
+  richInline?: RichInlineItem[]
+  font?: string
+}
+
+/**
+ * System-boundary validator: the MCP input is LLM-generated, so exactly-one
+ * exclusivity (and font-with-text) is enforced here, not inside handleRun.
+ */
+export function narrowRunInput(input: RawRunInput): RunInput {
+  const { text, richInline, font, ...base } = input
+  if (text !== undefined && richInline !== undefined) {
+    throw new Error('pretext_run: pass either `text` or `richInline`, not both.')
+  }
+  if (richInline !== undefined) {
+    return { ...base, richInline }
+  }
+  if (text === undefined) {
+    throw new Error('pretext_run: one of `text` or `richInline` is required.')
+  }
+  if (font === undefined) {
+    throw new Error('pretext_run: `text` requires `font`.')
+  }
+  return { ...base, text, font }
 }
 
 export type RunOutput = {
@@ -37,13 +66,6 @@ function buildPrepareOptions(input: { whiteSpace?: 'normal' | 'pre-wrap'; wordBr
 }
 
 export async function handleRun(input: RunInput): Promise<RunOutput> {
-  if (input.text !== undefined && input.richInline !== undefined) {
-    throw new Error('handleRun: pass either `text` or `richInline`, not both.')
-  }
-  if (input.text === undefined && input.richInline === undefined) {
-    throw new Error('handleRun: one of `text` or `richInline` is required.')
-  }
-
   if (input.mode === 'accurate') {
     return browserRun(input)
   }
@@ -73,7 +95,7 @@ export async function handleRun(input: RunInput): Promise<RunOutput> {
   const options = buildPrepareOptions(input)
 
   if (input.rich) {
-    const prepared = pretext.prepareWithSegments(input.text!, input.font!, options)
+    const prepared = pretext.prepareWithSegments(input.text, input.font, options)
     const result = pretext.layoutWithLines(prepared, input.width, input.lineHeight)
     return {
       lineCount: result.lineCount,
@@ -85,7 +107,7 @@ export async function handleRun(input: RunInput): Promise<RunOutput> {
     }
   }
 
-  const prepared = pretext.prepare(input.text!, input.font!, options)
+  const prepared = pretext.prepare(input.text, input.font, options)
   const result = pretext.layout(prepared, input.width, input.lineHeight)
   return { lineCount: result.lineCount, height: result.height }
 }

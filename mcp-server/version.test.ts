@@ -95,3 +95,28 @@ describe('version detection', () => {
     expect(mod1).toBe(mod2)
   })
 })
+
+describe('requireVersioned', () => {
+  const loc = { path: '/x/@chenglou/pretext/dist/layout.js', version: '0.0.4', source: 'user' as const }
+
+  test('delegates to the underlying function when present', async () => {
+    const { requireVersioned } = await import('./version.js')
+    const real = (a: number, b: number) => a + b
+    const wrapped = requireVersioned<(a: number, b: number) => number>('measureLineStats', '0.0.5', loc, real)
+    expect(wrapped(2, 3)).toBe(5)
+  })
+
+  test('throws a versioned error naming the helper when the export is absent', async () => {
+    const { requireVersioned } = await import('./version.js')
+    const wrapped = requireVersioned<() => number>('measureLineStats', '0.0.5', loc, undefined)
+    expect(() => wrapped()).toThrow(/measureLineStats requires pretext >=0\.0\.5/)
+    expect(() => wrapped()).toThrow(/detected v0\.0\.4/)
+    expect(() => wrapped()).toThrow(/at \/x\/@chenglou\/pretext\/dist\/layout\.js/)
+  })
+
+  test('treats a non-function export as absent', async () => {
+    const { requireVersioned } = await import('./version.js')
+    const wrapped = requireVersioned<() => number>('measureNaturalWidth', '0.0.5', loc, 42 as unknown)
+    expect(() => wrapped()).toThrow(/measureNaturalWidth requires pretext >=0\.0\.5/)
+  })
+})
