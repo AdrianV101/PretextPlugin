@@ -51,11 +51,14 @@ export type PretextModule = {
   layoutWithLines: (prepared: PreparedTextWithSegments, maxWidth: number, lineHeight: number) => LayoutLinesResult
   walkLineRanges: (prepared: PreparedTextWithSegments, maxWidth: number, onLine: (line: LayoutLineRange) => void) => number
   layoutNextLine: (prepared: PreparedTextWithSegments, start: LayoutCursor, maxWidth: number) => LayoutLine | null
-  // v0.0.5+ geometry helpers — optional so users on older pretext don't crash.
-  measureLineStats?: (prepared: PreparedTextWithSegments, maxWidth: number) => LineStats
-  measureNaturalWidth?: (prepared: PreparedTextWithSegments) => number
-  layoutNextLineRange?: (prepared: PreparedTextWithSegments, start: LayoutCursor, maxWidth: number) => LayoutLineRange | null
-  materializeLineRange?: (prepared: PreparedTextWithSegments, line: LayoutLineRange) => LayoutLine
+  // v0.0.5+ geometry helpers. Always present on the module object: loadPretext
+  // wraps each via requireVersioned so an old user install throws a clear
+  // versioned error instead of surfacing `undefined` and crashing with a
+  // bare TypeError.
+  measureLineStats: (prepared: PreparedTextWithSegments, maxWidth: number) => LineStats
+  measureNaturalWidth: (prepared: PreparedTextWithSegments) => number
+  layoutNextLineRange: (prepared: PreparedTextWithSegments, start: LayoutCursor, maxWidth: number) => LayoutLineRange | null
+  materializeLineRange: (prepared: PreparedTextWithSegments, line: LayoutLineRange) => LayoutLine
   clearCache: () => void
   setLocale: (locale?: string) => void
 }
@@ -151,14 +154,38 @@ export async function locatePretext(projectDir: string): Promise<PretextLocation
   return { path: BUNDLED_PATH, version: BUNDLED_VERSION, source: 'bundled' }
 }
 
+export const MIN_VERSION_V05 = '0.0.5'
+
+/**
+ * Wrap a v0.0.5+ helper export. If the underlying export is absent (older user
+ * install), return a function that throws a versioned error rather than caching
+ * `undefined` and later crashing with a bare TypeError at the first call site.
+ */
+export function requireVersioned<F>(
+  name: string,
+  minVersion: string,
+  location: PretextLocation,
+  fn: unknown,
+): F {
+  if (typeof fn === 'function') return fn as F
+  const thrower = (): never => {
+    throw new Error(
+      `pretext.${name} requires pretext >=${minVersion}; detected v${location.version} at ${location.path}. ` +
+      `Upgrade @chenglou/pretext or rely on the plugin's bundled mode.`,
+    )
+  }
+  return thrower as F
+}
+
 let cachedModule: PretextModule | null = null
 let cachedProjectDir: string | null = null
 let cachedRichInlineModule: RichInlineModule | null = null
 let cachedRichInlineProjectDir: string | null = null
 
 // Required exports for any pretext install. v0.0.5+ helpers (measureLineStats,
-// measureNaturalWidth, layoutNextLineRange, materializeLineRange) are typed
-// optional and intentionally not validated — older user installs lack them.
+// measureNaturalWidth, layoutNextLineRange, materializeLineRange) are NOT in
+// this list — loadPretext wraps them via requireVersioned, so an old user
+// install gets a versioned error at call time instead of failing here.
 const REQUIRED_PRETEXT_EXPORTS: ReadonlyArray<keyof PretextModule> = [
   'prepare',
   'prepareWithSegments',
@@ -195,10 +222,10 @@ export async function loadPretext(projectDir: string): Promise<PretextModule> {
     layoutWithLines: mod.layoutWithLines,
     walkLineRanges: mod.walkLineRanges,
     layoutNextLine: mod.layoutNextLine,
-    measureLineStats: mod.measureLineStats,
-    measureNaturalWidth: mod.measureNaturalWidth,
-    layoutNextLineRange: mod.layoutNextLineRange,
-    materializeLineRange: mod.materializeLineRange,
+    measureLineStats: requireVersioned<PretextModule['measureLineStats']>('measureLineStats', MIN_VERSION_V05, location, mod.measureLineStats),
+    measureNaturalWidth: requireVersioned<PretextModule['measureNaturalWidth']>('measureNaturalWidth', MIN_VERSION_V05, location, mod.measureNaturalWidth),
+    layoutNextLineRange: requireVersioned<PretextModule['layoutNextLineRange']>('layoutNextLineRange', MIN_VERSION_V05, location, mod.layoutNextLineRange),
+    materializeLineRange: requireVersioned<PretextModule['materializeLineRange']>('materializeLineRange', MIN_VERSION_V05, location, mod.materializeLineRange),
     clearCache: mod.clearCache,
     setLocale: mod.setLocale,
   }
