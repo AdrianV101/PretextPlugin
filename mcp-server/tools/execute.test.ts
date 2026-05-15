@@ -384,4 +384,10 @@ describe('narrowRunInput', () => {
     const bad = { text: 'a', richInline: [{ text: 'b', font: 'f' }], width: 1, lineHeight: 1 } satisfies RunInput
     expect(bad).toBeDefined()
   })
+
+  test('rejects a text-without-font call site at compile time', () => {
+    // @ts-expect-error - text variant of the union requires font
+    const bad = { text: 'a', width: 1, lineHeight: 1 } satisfies RunInput
+    expect(bad).toBeDefined()
+  })
 })
