@@ -82,17 +82,26 @@ d('accurate mode — real chromium', () => {
     }
   }, 30_000)
 
-  test('rich-inline run wraps onto multiple lines at narrow width', async () => {
+  test('rich-inline run wraps and partitions items across lines at narrow width', async () => {
     const out = await browserRun({
       richInline: [
-        { text: 'one two three four five six seven eight nine ten', font: '16px sans-serif' },
+        { text: 'one two ', font: '16px sans-serif' },
+        { text: '@alice', font: '16px sans-serif', break: 'never' },
+        { text: ' three four five six', font: '16px sans-serif' },
       ],
-      width: 50,
+      width: 60,
       lineHeight: 20,
+      rich: true,
       browser: 'chromium',
     })
     expect(out.lineCount).toBeGreaterThan(1)
     expect(out.height).toBe(out.lineCount * 20)
+    expect(out.lines).toBeDefined()
+    // Every emitted line must reference only items 0–2, nothing leaked.
+    for (const line of out.lines!) {
+      expect(line.text).toMatch(/^(?:\[item [0-2]\])(?: \[item [0-2]\])*$/)
+      expect(line.width).toBeGreaterThan(0)
+    }
   }, 30_000)
 
   test('measure returns segments with non-zero widths', async () => {

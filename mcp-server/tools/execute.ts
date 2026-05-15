@@ -83,6 +83,13 @@ export async function handleRun(input: RunInput): Promise<RunOutput> {
       const text = range.fragments.map((f) => `[item ${f.itemIndex}]`).join(' ')
       lines.push({ text, width: range.width })
     })
+    // A non-empty `richInline` whose items are all empty/whitespace collapses
+    // to zero lines inside pretext (post-trim). Surface it instead of
+    // silently returning {0,0} — the array-length guard upstream cannot see
+    // this because the array itself is non-empty.
+    if (lineCount === 0) {
+      throw new Error('pretext_run: `richInline` produced no renderable content (every item is empty or whitespace).')
+    }
     return {
       lineCount,
       height: lineCount * input.lineHeight,

@@ -93,6 +93,11 @@ function inPageFn(args: InPageRunArgs | InPageMeasureArgs): RunOutput | MeasureO
         const text = range.fragments.map((f) => `[item ${f.itemIndex}]`).join(' ')
         lines.push({ text, width: range.width })
       })
+      // Mirrors the structural guard in execute.ts: all-empty/whitespace
+      // items collapse to zero lines; surface it rather than return {0,0}.
+      if (lineCount === 0) {
+        throw new Error('pretext_run: `richInline` produced no renderable content (every item is empty or whitespace).')
+      }
       return {
         lineCount,
         height: lineCount * args.lineHeight,

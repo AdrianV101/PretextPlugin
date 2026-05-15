@@ -204,6 +204,28 @@ describe('pretext_run rich-inline mode', () => {
     } as any)
     expect(result.lineCount).toBeGreaterThan(1)
   })
+
+  test('rejects a non-empty richInline whose items are all empty instead of yielding 0 lines', async () => {
+    const { handleRun } = await import('./execute.js')
+    await expect(
+      handleRun({
+        richInline: [{ text: '', font: '16px sans-serif' }],
+        width: 100,
+        lineHeight: 20,
+      } as any),
+    ).rejects.toThrow(/no renderable content/i)
+  })
+
+  test('rejects a richInline whose items are all whitespace instead of yielding 0 lines', async () => {
+    const { handleRun } = await import('./execute.js')
+    await expect(
+      handleRun({
+        richInline: [{ text: '   ', font: '16px sans-serif' }],
+        width: 100,
+        lineHeight: 20,
+      } as any),
+    ).rejects.toThrow(/no renderable content/i)
+  })
 })
 
 describe('pretext_measure v0.0.5+ options', () => {
