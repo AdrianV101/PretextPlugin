@@ -5,7 +5,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { z } from 'zod'
 import { installCanvasShim } from './canvas-shim.js'
-import { handleRun, handleMeasure } from './tools/execute.js'
+import { handleRun, handleMeasure, narrowRunInput } from './tools/execute.js'
 import { handleValidate } from './tools/validate.js'
 import { handleExplain, handleSource } from './tools/knowledge.js'
 import { BROWSER_TYPES } from './browser-pool.js'
@@ -53,7 +53,7 @@ server.registerTool(
     }),
   },
   async (input) => {
-    const result = await handleRun(input)
+    const result = await handleRun(narrowRunInput(input))
     return {
       content: [{ type: 'text' as const, text: JSON.stringify(result, null, 2) }],
     }
