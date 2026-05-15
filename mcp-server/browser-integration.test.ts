@@ -60,6 +60,50 @@ d('accurate mode — real chromium', () => {
     }
   }, 30_000)
 
+  test('rich-inline run lays out chips/mentions in a real browser', async () => {
+    const out = await browserRun({
+      richInline: [
+        { text: 'Hello ', font: '16px sans-serif' },
+        { text: '@alice', font: '16px sans-serif', break: 'never' },
+        { text: ' how are you today?', font: '16px sans-serif' },
+      ],
+      width: 1000,
+      lineHeight: 20,
+      rich: true,
+      browser: 'chromium',
+    })
+    expect(out.lineCount).toBeGreaterThanOrEqual(1)
+    expect(out.height).toBe(out.lineCount * 20)
+    expect(out.lines).toBeDefined()
+    for (const line of out.lines!) {
+      expect(line.text).toMatch(/^(?:\[item [0-2]\])(?: \[item [0-2]\])*$/)
+      expect(Number.isFinite(line.width)).toBe(true)
+      expect(line.width).toBeGreaterThan(0)
+    }
+  }, 30_000)
+
+  test('rich-inline run wraps and partitions items across lines at narrow width', async () => {
+    const out = await browserRun({
+      richInline: [
+        { text: 'one two ', font: '16px sans-serif' },
+        { text: '@alice', font: '16px sans-serif', break: 'never' },
+        { text: ' three four five six', font: '16px sans-serif' },
+      ],
+      width: 60,
+      lineHeight: 20,
+      rich: true,
+      browser: 'chromium',
+    })
+    expect(out.lineCount).toBeGreaterThan(1)
+    expect(out.height).toBe(out.lineCount * 20)
+    expect(out.lines).toBeDefined()
+    // Every emitted line must reference only items 0–2, nothing leaked.
+    for (const line of out.lines!) {
+      expect(line.text).toMatch(/^(?:\[item [0-2]\])(?: \[item [0-2]\])*$/)
+      expect(line.width).toBeGreaterThan(0)
+    }
+  }, 30_000)
+
   test('measure returns segments with non-zero widths', async () => {
     const out = await browserMeasure({
       text: 'hello world',

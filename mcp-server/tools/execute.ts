@@ -40,6 +40,9 @@ export function narrowRunInput(input: RawRunInput): RunInput {
     throw new Error('pretext_run: pass either `text` or `richInline`, not both.')
   }
   if (richInline !== undefined) {
+    if (richInline.length === 0) {
+      throw new Error('pretext_run: `richInline` must contain at least one item.')
+    }
     return { ...base, richInline }
   }
   if (text === undefined) {
@@ -80,6 +83,13 @@ export async function handleRun(input: RunInput): Promise<RunOutput> {
       const text = range.fragments.map((f) => `[item ${f.itemIndex}]`).join(' ')
       lines.push({ text, width: range.width })
     })
+    // A non-empty `richInline` whose items are all empty/whitespace collapses
+    // to zero lines inside pretext (post-trim). Surface it instead of
+    // silently returning {0,0} — the array-length guard upstream cannot see
+    // this because the array itself is non-empty.
+    if (lineCount === 0) {
+      throw new Error('pretext_run: `richInline` produced no renderable content (every item is empty or whitespace).')
+    }
     return {
       lineCount,
       height: lineCount * input.lineHeight,

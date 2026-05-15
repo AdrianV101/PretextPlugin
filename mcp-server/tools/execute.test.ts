@@ -204,6 +204,28 @@ describe('pretext_run rich-inline mode', () => {
     } as any)
     expect(result.lineCount).toBeGreaterThan(1)
   })
+
+  test('rejects a non-empty richInline whose items are all empty instead of yielding 0 lines', async () => {
+    const { handleRun } = await import('./execute.js')
+    await expect(
+      handleRun({
+        richInline: [{ text: '', font: '16px sans-serif' }],
+        width: 100,
+        lineHeight: 20,
+      } as any),
+    ).rejects.toThrow(/no renderable content/i)
+  })
+
+  test('rejects a richInline whose items are all whitespace instead of yielding 0 lines', async () => {
+    const { handleRun } = await import('./execute.js')
+    await expect(
+      handleRun({
+        richInline: [{ text: '   ', font: '16px sans-serif' }],
+        width: 100,
+        lineHeight: 20,
+      } as any),
+    ).rejects.toThrow(/no renderable content/i)
+  })
 })
 
 describe('pretext_measure v0.0.5+ options', () => {
@@ -359,6 +381,13 @@ describe('narrowRunInput', () => {
     expect(() =>
       narrowRunInput({ text: 'hi', width: 100, lineHeight: 20 }),
     ).toThrow(/`text` requires `font`/i)
+  })
+
+  test('rejects an empty richInline array instead of silently yielding 0 lines', async () => {
+    const { narrowRunInput } = await import('./execute.js')
+    expect(() =>
+      narrowRunInput({ richInline: [], width: 100, lineHeight: 20 }),
+    ).toThrow(/`richInline` must contain at least one item/i)
   })
 
   test('returns the text variant for valid text input', async () => {
