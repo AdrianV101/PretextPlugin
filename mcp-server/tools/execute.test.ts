@@ -379,6 +379,36 @@ describe('narrowRunInput', () => {
     expect(r.text).toBeUndefined()
   })
 
+  test('preserves all base fields through the rest spread', async () => {
+    const { narrowRunInput } = await import('./execute.js')
+    const r = narrowRunInput({
+      text: 'hi',
+      font: 'f',
+      width: 100,
+      lineHeight: 20,
+      mode: 'accurate',
+      browser: 'chromium',
+      letterSpacing: 3,
+      whiteSpace: 'pre-wrap',
+      wordBreak: 'keep-all',
+      locale: 'ja',
+      rich: true,
+    })
+    expect(r).toMatchObject({
+      text: 'hi',
+      font: 'f',
+      width: 100,
+      lineHeight: 20,
+      mode: 'accurate',
+      browser: 'chromium',
+      letterSpacing: 3,
+      whiteSpace: 'pre-wrap',
+      wordBreak: 'keep-all',
+      locale: 'ja',
+      rich: true,
+    })
+  })
+
   test('rejects an invalid both-fields call site at compile time', () => {
     // @ts-expect-error - discriminated union forbids text + richInline together
     const bad = { text: 'a', richInline: [{ text: 'b', font: 'f' }], width: 1, lineHeight: 1 } satisfies RunInput

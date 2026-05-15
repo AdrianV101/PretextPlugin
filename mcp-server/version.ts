@@ -54,7 +54,9 @@ export type PretextModule = {
   // v0.0.5+ geometry helpers. Always present on the module object: loadPretext
   // wraps each via requireVersioned so an old user install throws a clear
   // versioned error instead of surfacing `undefined` and crashing with a
-  // bare TypeError.
+  // bare TypeError. Note: `typeof mod.measureLineStats === 'function'` is
+  // therefore always true and is NOT an availability probe; check
+  // locatePretext().version instead.
   measureLineStats: (prepared: PreparedTextWithSegments, maxWidth: number) => LineStats
   measureNaturalWidth: (prepared: PreparedTextWithSegments) => number
   layoutNextLineRange: (prepared: PreparedTextWithSegments, start: LayoutCursor, maxWidth: number) => LayoutLineRange | null
@@ -184,7 +186,7 @@ let cachedRichInlineProjectDir: string | null = null
 
 // Required exports for any pretext install. v0.0.5+ helpers (measureLineStats,
 // measureNaturalWidth, layoutNextLineRange, materializeLineRange) are NOT in
-// this list — loadPretext wraps them via requireVersioned, so an old user
+// this list; loadPretext wraps them via requireVersioned, so an old user
 // install gets a versioned error at call time instead of failing here.
 const REQUIRED_PRETEXT_EXPORTS: ReadonlyArray<keyof PretextModule> = [
   'prepare',

@@ -111,6 +111,7 @@ describe('requireVersioned', () => {
     const wrapped = requireVersioned<() => number>('measureLineStats', '0.0.5', loc, undefined)
     expect(() => wrapped()).toThrow(/measureLineStats requires pretext >=0\.0\.5/)
     expect(() => wrapped()).toThrow(/detected v0\.0\.4/)
+    expect(() => wrapped()).toThrow(/at \/x\/@chenglou\/pretext\/dist\/layout\.js/)
   })
 
   test('treats a non-function export as absent', async () => {
